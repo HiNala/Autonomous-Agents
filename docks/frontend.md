@@ -366,7 +366,7 @@ The application has exactly four states. The transitions between them are the co
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Design rules (Rams, Raskin):** The score is the hero — massive, immediate, emotional. The breakdown shows why. The graph is explorable but not overwhelming (starts in structure view). Findings are collapsed by severity. Fix plan is co-equal with the score — visible without scrolling. Senso panel is a subtle intelligence layer, not a separate page.
+**Design rules (Rams, Raskin):** The score is the hero — massive, immediate, emotional. The breakdown shows why. The graph is explorable but not overwhelming (starts in structure view). Findings are collapsed by severity. Fix plan is co-equal with the score — visible without scrolling.
 
 ### State 4: FAILED — The Recovery
 
@@ -387,10 +387,9 @@ Minimal: error message explaining what went wrong (agent that failed, network is
 **Header contents:**
 - Left: VIBE CHECK wordmark (JetBrains Mono, 700, tracking tight, uppercase)
 - Center: Repo name + status badge (when active analysis)
-- Right: Senso connection indicator (green dot = connected, gray = offline)
 
 **Footer contents:**
-- "Powered by" + sponsor logos in grayscale (Neo4j, Fastino, OpenAI, Senso, Tavily)
+- "Powered by" + sponsor logos in grayscale (Neo4j, Fastino, OpenAI, Tavily)
 - Logos colorize on hover
 - During active scan, footer shows which sponsor API is currently active with a subtle pulse
 
@@ -398,7 +397,7 @@ Minimal: error message explaining what went wrong (agent that failed, network is
 
 The footer isn't just attribution — it's a live integration indicator. During scanning:
 ```
-Powered by:  Neo4j ●  Fastino ⚡  OpenAI ○  Senso ○  Tavily ○
+Powered by:  Neo4j ●  Fastino ⚡  OpenAI ○  Tavily ○
                       ↑ currently active, pulsing
 ```
 
@@ -810,14 +809,6 @@ FINDINGS (39)    Filter: [All ▾]  [All Agents ▾]
    ```
    Code blocks use Shiki with the dark theme for syntax highlighting.
 
-8. **Senso Historical Context** (if `sensoHistoricalContext` exists)
-   ```
-   🧠 Intelligence from Previous Scans
-   "This same CVE was fixed in 2 previous repos.
-    Average fix time: 25 minutes."
-   ```
-   Subtle blue-tinted card. This is the moment that shifts the mental model from "scanner" to "intelligence system" (Don Norman mandate).
-
 ---
 
 ### 5.9 FixPlan — The Call to Action
@@ -859,7 +850,6 @@ The summary line is critical — it quantifies the total remediation effort and 
 - Severity badge
 - Title
 - Effort estimate + chains resolved + findings resolved
-- Senso historical context (if available) — the "intelligence" line
 - "View Fix" expands to full documentation inline, OR opens FindingDetail
 
 **Keystone Fix Highlight:**
@@ -869,70 +859,6 @@ Fixes that are "keystones" (resolving multiple chains) get a special treatment:
 - These always sort to top regardless of severity
 
 **Export dropdown:** Markdown (downloads .md file), JSON (downloads .json)
-
----
-
-### 5.10 SensoIntelligencePanel — The Brain
-
-**Implements mandate:** "Each scan makes the next one smarter. This is the moat." (Fadell)
-
-```typescript
-// Consumes: POST /analysis/:id/senso/search
-// Consumes: POST /analysis/:id/senso/generate
-// Props from contracts: SensoIntelligencePanelProps
-```
-
-**Layout:** Collapsible panel at the bottom of the dashboard, or accessible via a tab. Starts collapsed with a summary line, expands to full.
-
-**Collapsed state:**
-```
-🧠 INTELLIGENCE · 3 cross-repo patterns · 2 historical fixes applied     [Expand ▾]
-```
-
-**Expanded state:**
-
-**Section 1: Cross-Repo Patterns** (auto-populated from pre-scan Senso search)
-```
-📊 Patterns Across Your Repos
-
-• Missing input validation on API endpoints — seen in 7/10 repos
-• Outdated Express versions with known CVEs — seen in 5/10 repos
-• Hardcoded API keys in config files — seen in 4/10 repos
-```
-
-**Section 2: Historical Fixes Applied**
-```
-📚 Intelligence Applied to This Scan
-
-• Express CVE-2024-29041 fix documentation reused from project-a scan
-• Input validation pattern from project-b applied to Doctor Agent
-```
-
-**Section 3: Ask Anything** (the query box)
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ 🔍 Ask your knowledge base...                            [ → ]  │
-│    "What security patterns appear across all my repos?"          │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-On submit:
-1. Input shows loading spinner
-2. `POST /analysis/:id/senso/search` fires
-3. Response renders as:
-   ```
-   ANSWER:
-   "Based on 10 scanned repositories, the three most common
-    vulnerability patterns are..."
-
-   SOURCES:
-   ├── CVE-2024-29041 in user/project-a  (score: 0.92)
-   ├── Input validation finding in user/project-b  (score: 0.87)
-   └── Express config issue in user/project-c  (score: 0.81)
-   ```
-
-**Section 4: Generate** (stretch)
-A "Generate Report" button that calls `/senso/generate` to produce executive summaries, full vulnerability reports, etc.
 
 ---
 
@@ -960,7 +886,6 @@ A "Generate Report" button that calls `/senso/generate` to produce executive sum
 | Score breakdown stagger | 5 × 100ms delay, 300ms each | ease-out | After grade settle |
 | Vulnerability chain draw | 400ms per step | ease-out, sequential | View switch to Vulnerabilities |
 | Blast radius ripple | 3 × 200ms delay | ease-out | "Show Blast Radius" click |
-| Senso insight appear | 300ms | fade + slide-up | WebSocket senso_intelligence |
 | Fastino speed toast | 200ms in, 3000ms hold, 300ms out | ease-out | After Fastino batch completes |
 | FindingDetail slide-over | 300ms | ease-out | Finding click |
 
@@ -981,8 +906,7 @@ T+1600ms:  Glow settles. Confidence text fades in.
 T+1700ms:  Score breakdown cards stagger in (5 cards, 100ms apart)
 T+2200ms:  Graph panel fades in with existing graph data
 T+2500ms:  Findings panel fades in
-T+2800ms:  Fix plan slides up from bottom
-T+3000ms:  Senso intelligence bar fades in. Dashboard fully revealed.
+T+2800ms:  Fix plan slides up from bottom. Dashboard fully revealed.
 ```
 
 ---
@@ -1005,7 +929,7 @@ T+3000ms:  Senso intelligence bar fades in. Dashboard fully revealed.
 | Wide (≥1536px) | 3-column: graph (50%) + findings (25%) + detail (25%) |
 | Desktop (≥1280px) | 2-column: graph (60%) + findings (40%), fix plan full-width below |
 | Tablet (≥1024px) | 2-column: graph (55%) + findings (45%), stacked sections |
-| Mobile (<1024px) | Single column: score → graph → findings → fixes → senso. Graph has min-height 400px with pinch-zoom. |
+| Mobile (<1024px) | Single column: score → graph → findings → fixes. Graph has min-height 400px with pinch-zoom. |
 
 ### Accessibility
 
@@ -1051,10 +975,6 @@ interface AnalysisStore {
   // Chains
   chains: VulnerabilityChain[];
 
-  // Senso
-  sensoIntelligence: SensoInsight[];
-  sensoSearchResults: SensoSearchResult | null;
-
   // Live feed (during scanning)
   liveFindings: Finding[];
 
@@ -1083,8 +1003,6 @@ interface AnalysisStore {
 | Vulnerability chains | On analysis complete | `GET /analysis/:id/chains` |
 | Fix plan | On analysis complete | `GET /analysis/:id/fixes` |
 | Full graph data | On view change | `GET /analysis/:id/graph?view=X` |
-| Senso search | On user query | `POST /analysis/:id/senso/search` |
-| Senso generate | On user action | `POST /analysis/:id/senso/generate` |
 
 ---
 
@@ -1141,10 +1059,6 @@ function useAnalysisWebSocket(analysisId: string) {
               durationMs: msg.durationMs,
               provider: msg.provider,
             });
-            break;
-
-          case 'senso_intelligence':
-            store.addSensoInsight(msg.insight);
             break;
 
           case 'complete':
@@ -1246,7 +1160,6 @@ During the demo, the footer sponsor logos activate in sequence:
 0:18  Fastino pulses (CVE entity extraction)
 0:20  OpenAI pulses (chain analysis begins)
 0:30  OpenAI pulses (Doctor agent)
-0:35  Senso pulses (knowledge ingestion)
 ```
 
 This creates a visual rhythm of sponsor integration that judges can feel.

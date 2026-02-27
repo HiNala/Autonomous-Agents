@@ -75,6 +75,11 @@ async def run_pipeline(analysis_id: str) -> None:
         await _ws(analysis_id, "security", "running", 0.1, "Searching for CVEs...")
         cve_results = await _tavily_cve_search(tavily, analysis_id, metadata)
 
+        # Tavily extract + Fastino CVE entity extraction (advisory content → findings)
+        cve_findings: list[dict] = []
+        if tavily.available and fastino.available and cve_results:
+            cve_findings = await _tavily_extract_and_fastino_cve(tavily, fastino, analysis_id, cve_results)
+
         # ── 4. FASTINO — Deep Analysis ──────────────────────────
         fastino_findings: list[dict] = []
         if fastino.available:
@@ -82,10 +87,10 @@ async def run_pipeline(analysis_id: str) -> None:
             fastino_findings = await _fastino_analyze(fastino, analysis_id, clone_dir, metadata)
 
         # ── 5. YUTORI — Web Research ────────────────────────────
-        yutori_results: dict = {}
+        yutori_findings: list[dict] = []
         if yutori.available and cve_results:
             await _ws(analysis_id, "security", "running", 0.5, "Deep web research with Yutori...")
-            yutori_results = await _yutori_research(yutori, analysis_id, metadata, cve_results)
+            yutori_findings = await _yutori_research(yutori, analysis_id, metadata, cve_results)
 
         # ── 6. OPENAI — Backup Reasoning ────────────────────────
         openai_findings: list[dict] = []
@@ -96,7 +101,7 @@ async def run_pipeline(analysis_id: str) -> None:
             )
 
         # ── Aggregate Findings ──────────────────────────────────
-        all_findings = _merge_findings(cve_results, fastino_findings, openai_findings, yutori_results)
+        all_findings = _merge_findings(cve_findings, fastino_findings, openai_findings, yutori_findings)
         health_score = _compute_health_score(all_findings, metadata["stats"])
 
         # ── 7. NEO4J — Build Graph ──────────────────────────────
@@ -335,7 +340,9 @@ async def _fastino_classify_files(
 ) -> dict:
     """Classify files into source/test/config/docs categories."""
     categories = ["source", "test", "config", "docs", "assets", "build", "ci-cd"]
-    for f in metadata["files"][:100]:
+    t0 = time.perf_counter()
+    files_to_classify = metadata["files"][:100]
+    for f in files_to_classify:
         try:
             result = await fastino.classify_text(
                 analysis_id=analysis_id,
@@ -346,6 +353,8 @@ async def _fastino_classify_files(
             f["category"] = result.get("label", "unknown")
         except Exception:
             f["category"] = "unknown"
+    elapsed_ms = round((time.perf_counter() - t0) * 1000)
+    await _ws(analysis_id, "mapper", "running", -1, f"⚡ Fastino: {len(files_to_classify)} files classified in {elapsed_ms}ms")
     return metadata
 
 
@@ -388,6 +397,94 @@ async def _tavily_cve_search(
     return cve_results
 
 
+async def _tavily_extract_and_fastino_cve(
+    tavily: TavilyClient,
+    fastino: FastinoClient,
+    analysis_id: str,
+    cve_results: list[dict],
+) -> list[dict]:
+    """Extract advisory content with Tavily, parse CVE entities with Fastino; return security findings."""
+    findings: list[dict] = []
+    urls: list[str] = []
+    for batch in cve_results:
+        for r in (batch.get("results") or [])[:2]:
+            if r.get("url"):
+                urls.append(r["url"])
+    urls = list(dict.fromkeys(urls))[:5]
+    if not urls or not tavily.available:
+        return findings
+
+    await _ws(analysis_id, "security", "running", 0.18, "Extracting advisory content with Tavily...")
+    extracted_texts: list[str] = []
+    try:
+        ext = await tavily.extract(analysis_id=analysis_id, urls=urls, step_name="cve_extract")
+        if isinstance(ext.get("results"), list):
+            for item in ext["results"]:
+                content = item.get("content") or item.get("raw_content") or item.get("text") or ""
+                if content:
+                    extracted_texts.append(str(content)[:8000])
+        elif ext.get("content"):
+            extracted_texts.append(str(ext["content"])[:8000])
+    except Exception:
+        pass
+
+    combined = "\n\n".join(extracted_texts) or " ".join(b.get("answer", "") for b in cve_results)[:12000]
+    if not combined.strip() or not fastino.available:
+        return findings
+
+    await _ws(analysis_id, "security", "running", 0.22, "Parsing CVEs with Fastino...")
+    t0 = time.perf_counter()
+    try:
+        result = await fastino.extract_entities(
+            analysis_id=analysis_id,
+            text=combined,
+            labels=["CVE_ID", "CVSS", "fixed_version", "affected_package", "vulnerability_description"],
+            step_name="cve_entity_extract",
+        )
+        elapsed_ms = round((time.perf_counter() - t0) * 1000)
+        await _ws(analysis_id, "security", "running", -1, f"⚡ Fastino: CVE entities extracted in {elapsed_ms}ms")
+
+        entities = result.get("entities", result.get("result", []))
+        if isinstance(entities, dict):
+            entities = [entities]
+        if isinstance(entities, list):
+            for ent in entities:
+                if not isinstance(ent, dict):
+                    continue
+                cve_id = ent.get("CVE_ID") or ent.get("cve_id")
+                if not cve_id and (ent.get("type") == "CVE_ID" or ent.get("label") == "CVE_ID"):
+                    cve_id = ent.get("text") or ent.get("value") or ""
+                if not cve_id or not str(cve_id).strip().upper().startswith("CVE-"):
+                    continue
+                try:
+                    cvss_val = float(ent.get("CVSS") or ent.get("cvss") or 0)
+                except (TypeError, ValueError):
+                    cvss_val = 0.0
+                findings.append({
+                    "id": f"fnd_{uuid.uuid4().hex[:6]}",
+                    "type": "vulnerability",
+                    "severity": "critical",
+                    "agent": "security",
+                    "provider": "fastino",
+                    "title": f"{cve_id} in affected dependency",
+                    "description": (ent.get("vulnerability_description") or ent.get("description") or "")[:500] or f"CVE {cve_id} detected from advisory.",
+                    "plain_description": f"CVE {cve_id}",
+                    "location": {"files": [], "primary_file": "", "start_line": 0, "end_line": 0},
+                    "blast_radius": {"files_affected": 0, "functions_affected": 0, "endpoints_affected": 0},
+                    "chain_ids": [],
+                    "confidence": 0.85,
+                    "cve_id": str(cve_id),
+                    "cve": {
+                        "id": str(cve_id),
+                        "cvssScore": cvss_val,
+                        "fixedVersion": ent.get("fixed_version") or "",
+                    },
+                })
+    except Exception:
+        pass
+    return findings
+
+
 # ────────────────────────────────────────────────────────────────
 # 4. FASTINO — Deep Analysis
 # ────────────────────────────────────────────────────────────────
@@ -424,6 +521,7 @@ async def _fastino_analyze(
                     "type": "code_smell",
                     "severity": "warning",
                     "agent": "quality",
+                    "provider": "fastino",
                     "title": f"{label.replace('_', ' ').title()} in {f['name']}",
                     "description": f"Fastino detected {label} pattern in {f['path']}",
                     "plain_description": f"Code quality issue: {label}",
@@ -447,8 +545,9 @@ async def _yutori_research(
     analysis_id: str,
     metadata: dict,
     cve_results: list[dict],
-) -> dict:
-    """Use Yutori Research API to do deep investigation of found CVEs."""
+) -> list[dict]:
+    """Use Yutori Research API to do deep investigation of found CVEs; return list of findings."""
+    findings: list[dict] = []
     stack = metadata.get("detected_stack", {})
     frameworks = ", ".join(stack.get("frameworks", []))
     cve_summary = "; ".join(
@@ -479,9 +578,39 @@ async def _yutori_research(
             },
             max_wait=90,
         )
-        return result
+        # Parse Research task output into findings (merge into main findings list)
+        raw = result.get("output") or result.get("result") or result.get("findings")
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = []
+        if isinstance(raw, list):
+            for i, item in enumerate(raw):
+                if not isinstance(item, dict):
+                    continue
+                title = item.get("title") or item.get("name") or f"Yutori finding {i + 1}"
+                severity = (item.get("severity") or "info").lower()
+                if severity not in ("critical", "warning", "info"):
+                    severity = "warning" if severity in ("high", "medium") else "info"
+                findings.append({
+                    "id": f"fnd_yutori_{uuid.uuid4().hex[:6]}",
+                    "type": "security_research",
+                    "severity": severity,
+                    "agent": "security",
+                    "provider": "yutori",
+                    "title": title[:300],
+                    "description": item.get("summary") or item.get("description") or title,
+                    "plain_description": (item.get("summary") or title)[:200],
+                    "location": {"files": [], "primary_file": "", "start_line": 0, "end_line": 0},
+                    "blast_radius": {"files_affected": 0, "functions_affected": 0, "endpoints_affected": 0},
+                    "chain_ids": [],
+                    "confidence": 0.8,
+                    "source_url": item.get("source_url") or item.get("url") or "",
+                })
     except Exception:
-        return {}
+        pass
+    return findings
 
 
 # ────────────────────────────────────────────────────────────────
@@ -569,6 +698,7 @@ async def _openai_analyze(
                 "type": f.get("type", "code_issue"),
                 "severity": f.get("severity", "info"),
                 "agent": f.get("agent", "pattern"),
+                "provider": "openai",
                 "title": f.get("title", ""),
                 "description": f.get("description", ""),
                 "plain_description": f.get("description", "")[:200],
@@ -686,7 +816,7 @@ async def _build_neo4j_graph(
             "type": "package",
             "label": f"{d['name']}@{d['version']}",
             "findingCount": 0,
-            "metadata": {"version": d["version"], "isDev": d.get("is_dev", False)},
+            "metadata": {"name": d["name"], "version": d["version"], "isDev": d.get("is_dev", False)},
         })
 
     # Write to Neo4j if available
@@ -694,14 +824,58 @@ async def _build_neo4j_graph(
         for n in nodes:
             try:
                 if n["type"] == "file":
-                    await neo4j_service.write_file_node(analysis_id, n["id"], n.get("path", ""), n.get("language", ""), n.get("lines", 0), n.get("category", ""))
+                    await neo4j_service.write_file_node(
+                        analysis_id, n["id"], n.get("path", ""), n.get("language", ""),
+                        n.get("lines", 0), n.get("category", ""),
+                        finding_count=n.get("findingCount", 0),
+                        severity=n.get("severity"),
+                    )
                 elif n["type"] == "directory":
                     await neo4j_service.write_directory_node(analysis_id, n["id"], n.get("path", "/"))
+                elif n["type"] == "package":
+                    pkg_name = n.get("metadata", {}).get("name") or (n.get("label", "").split("@")[0] if "@" in (n.get("label") or "") else n.get("label", ""))
+                    await neo4j_service.write_package_node(
+                        analysis_id, n["id"],
+                        pkg_name,
+                        n.get("metadata", {}).get("version", ""),
+                        is_dev=n.get("metadata", {}).get("isDev", False),
+                        finding_count=n.get("findingCount", 0),
+                        severity=n.get("severity"),
+                    )
             except Exception:
                 pass
         for e in edges:
             try:
                 await neo4j_service.write_edge(analysis_id, e["id"], e["source"], e["target"], e["type"])
+            except Exception:
+                pass
+        # Finding nodes and AFFECTS / HAS_CVE for blast radius and chain analysis
+        for fd in findings:
+            try:
+                fid = fd.get("id")
+                if not fid:
+                    continue
+                await neo4j_service.write_finding_node(
+                    analysis_id, fid,
+                    title=fd.get("title", "")[:500],
+                    severity=fd.get("severity", "info"),
+                    finding_type=fd.get("type", "finding"),
+                    agent=fd.get("agent", "unknown"),
+                    description=fd.get("description", "") or fd.get("plain_description", ""),
+                )
+                for loc_file in (fd.get("location") or {}).get("files", [])[:20]:
+                    file_node_id = f"file_{analysis_id}_{loc_file.replace('/', '_').replace('.', '_')}"
+                    await neo4j_service.write_affects_edge(analysis_id, fid, file_node_id)
+                cve_id = (fd.get("cve") or {}).get("id") if isinstance(fd.get("cve"), dict) else fd.get("cve_id")
+                if cve_id:
+                    cve_node_id = f"cve_{analysis_id}_{cve_id}"
+                    await neo4j_service.write_cve_node(
+                        analysis_id, cve_node_id,
+                        cvss_score=(fd.get("cve") or {}).get("cvssScore") if isinstance(fd.get("cve"), dict) else None,
+                        description=(fd.get("cve") or {}).get("description", "") if isinstance(fd.get("cve"), dict) else "",
+                        fixed_version=(fd.get("cve") or {}).get("fixedVersion", "") if isinstance(fd.get("cve"), dict) else "",
+                    )
+                    await neo4j_service.write_has_cve_edge(analysis_id, fid, cve_node_id)
             except Exception:
                 pass
 

@@ -97,22 +97,25 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
             return {"message": "Yutori OK — API healthy"}
 
     async def check_fastino():
-        key = settings.fastino_api_key
-        if not key:
-            raise ValueError("FASTINO_API_KEY not set")
-        async with httpx.AsyncClient(timeout=6.0) as c:
-            r = await c.post(
-                "https://api.fastino.ai/gliner-2",
-                headers={"Authorization": f"Bearer {key}"},
-                json={"task": "classify_text", "text": "hello", "schema": {"categories": ["test"]}},
-            )
-            if r.status_code in (401, 403):
-                raise ValueError(f"Fastino auth failed — HTTP {r.status_code}")
-            if r.status_code == 404:
-                # Endpoint path may have changed — key is configured, treat as soft warning
-                return {"message": f"Fastino key configured — endpoint returned {r.status_code} (verify /gliner-2 path)"}
-            r.raise_for_status()
-            return {"message": "Fastino OK — GLiNER-2 responding"}
+        from app.clients.fastino import FastinoClient
+        client = FastinoClient()
+        if not client.available:
+            raise ValueError("Fastino unavailable (no API key and local GLiNER2 not loaded)")
+        if settings.fastino_api_key:
+            async with httpx.AsyncClient(timeout=6.0) as c:
+                r = await c.post(
+                    "https://api.fastino.ai/gliner-2",
+                    headers={"Authorization": f"Bearer {settings.fastino_api_key}"},
+                    json={"task": "classify_text", "text": "hello", "schema": {"categories": ["test"]}},
+                )
+                if r.status_code in (401, 403):
+                    raise ValueError(f"Fastino auth failed — HTTP {r.status_code}")
+                if r.status_code == 404:
+                    return {"message": f"Fastino key configured — endpoint returned {r.status_code} (verify /gliner-2 path)"}
+                r.raise_for_status()
+            return {"message": "Fastino OK — API responding"}
+        result = await client.classify_text("health", "hello", ["test"], step_name="health_check")
+        return {"message": f"Fastino OK — local GLiNER2 ({(result.get('_latency_ms') or 0)}ms)"}
 
     async def check_github():
         token = settings.github_token

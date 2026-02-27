@@ -117,3 +117,16 @@ async def get_graph(
         edges=edges,
         layout={"algorithm": layout_hint, "direction": "TB" if view == "structure" else ""},
     )
+
+
+@router.get("/analysis/{analysis_id}/graph/blast-radius")
+async def get_blast_radius(
+    analysis_id: str,
+    node_id: str = Query(..., description="Graph node id (file, package, or finding)"),
+    depth: int = Query(3, ge=1, le=6),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return blast radius counts (files/functions/endpoints) reachable from node within depth hops."""
+    await _get_analysis(analysis_id, db)
+    counts = await neo4j_service.get_blast_radius(analysis_id, node_id, depth=depth)
+    return {"nodeId": node_id, "depth": depth, **counts}

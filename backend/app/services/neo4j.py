@@ -244,6 +244,141 @@ async def mark_finding_on_node(
         )
 
 
+async def write_finding_node(
+    analysis_id: str,
+    finding_id: str,
+    title: str,
+    severity: str,
+    finding_type: str,
+    agent: str,
+    description: str = "",
+) -> None:
+    """Write a Finding node to the graph (for blast radius and chain analysis)."""
+    driver = _get_driver()
+    if not driver:
+        return
+    async with driver.session(database="neo4j") as session:
+        await session.run(
+            """
+            MERGE (f:Finding {id: $id, analysisId: $analysisId})
+            SET f.title = $title, f.severity = $severity,
+                f.type = $type, f.agent = $agent, f.description = $description
+            """,
+            id=finding_id,
+            analysisId=analysis_id,
+            title=title[:500],
+            severity=severity,
+            type=finding_type or "finding",
+            agent=agent or "unknown",
+            description=(description or "")[:2000],
+        )
+
+
+async def write_cve_node(
+    analysis_id: str,
+    cve_id: str,
+    cvss_score: float | None = None,
+    description: str = "",
+    fixed_version: str = "",
+) -> None:
+    """Write a CVE node to the graph."""
+    driver = _get_driver()
+    if not driver:
+        return
+    async with driver.session(database="neo4j") as session:
+        await session.run(
+            """
+            MERGE (c:CVE {id: $id, analysisId: $analysisId})
+            SET c.cvssScore = $cvssScore, c.description = $description,
+                c.fixedVersion = $fixedVersion
+            """,
+            id=cve_id,
+            analysisId=analysis_id,
+            cvssScore=cvss_score,
+            description=(description or "")[:1000],
+            fixedVersion=fixed_version or "",
+        )
+
+
+async def write_fix_node(
+    analysis_id: str,
+    fix_id: str,
+    title: str,
+    priority: int = 0,
+    finding_id: str = "",
+) -> None:
+    """Write a Fix node and optional RESOLVES edge to Finding."""
+    driver = _get_driver()
+    if not driver:
+        return
+    async with driver.session(database="neo4j") as session:
+        await session.run(
+            """
+            MERGE (x:Fix {id: $id, analysisId: $analysisId})
+            SET x.title = $title, x.priority = $priority
+            """,
+            id=fix_id,
+            analysisId=analysis_id,
+            title=title[:500],
+            priority=priority,
+        )
+        if finding_id:
+            await session.run(
+                """
+                MATCH (fix:Fix {id: $fixId, analysisId: $analysisId})
+                MATCH (f:Finding {id: $findingId, analysisId: $analysisId})
+                MERGE (fix)-[:RESOLVES]->(f)
+                """,
+                fixId=fix_id,
+                findingId=finding_id,
+                analysisId=analysis_id,
+            )
+
+
+async def write_affects_edge(
+    analysis_id: str,
+    finding_id: str,
+    node_id: str,
+) -> None:
+    """Create AFFECTS relationship from Finding to File/Package/Function."""
+    driver = _get_driver()
+    if not driver:
+        return
+    async with driver.session(database="neo4j") as session:
+        await session.run(
+            """
+            MATCH (f:Finding {id: $findingId, analysisId: $analysisId})
+            MATCH (n {id: $nodeId, analysisId: $analysisId})
+            MERGE (f)-[:AFFECTS]->(n)
+            """,
+            findingId=finding_id,
+            nodeId=node_id,
+            analysisId=analysis_id,
+        )
+
+
+async def write_has_cve_edge(
+    analysis_id: str,
+    finding_id: str,
+    cve_id: str,
+) -> None:
+    """Create HAS_CVE relationship from Finding to CVE."""
+    driver = _get_driver()
+    if not driver:
+        return
+    async with driver.session(database="neo4j") as session:
+        await session.run(
+            """
+            MATCH (f:Finding {id: $findingId, analysisId: $analysisId})
+            MATCH (c:CVE {id: $cveId, analysisId: $analysisId})
+            MERGE (f)-[:HAS_CVE]->(c)
+            """,
+            findingId=finding_id,
+            cveId=cve_id,
+            analysisId=analysis_id,
+        )
+
+
 # ============================================================
 # READ helpers (used by graph router)
 # ============================================================
@@ -330,7 +465,9 @@ async def get_graph_edges(analysis_id: str, view: str = "structure") -> list[dic
 
 
 async def get_blast_radius(analysis_id: str, node_id: str, depth: int = 3) -> dict[str, int]:
-    """BFS from a node to count affected files/functions/endpoints within `depth` hops."""
+    """BFS from a node to count affected files/functions/endpoints within `depth` hops.
+    Uses variable-length path (no APOC required).
+    """
     driver = _get_driver()
     if not driver:
         return {"files": 0, "functions": 0, "endpoints": 0}
@@ -353,7 +490,7 @@ async def get_blast_radius(analysis_id: str, node_id: str, depth: int = 3) -> di
         )
         row = await result.single()
         if row:
-            return {"files": row["files"], "functions": row["functions"], "endpoints": row["endpoints"]}
+            return {"files": row["files"] or 0, "functions": row["functions"] or 0, "endpoints": row["endpoints"] or 0}
         return {"files": 0, "functions": 0, "endpoints": 0}
 
 
