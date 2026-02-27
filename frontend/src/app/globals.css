@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────
+   VIBE CHECK — Design Tokens
+   "Clinical Intelligence" — medical imaging meets financial terminal
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* Background & Surface */
+  --bg-primary: #0A0A0B;
+  --bg-surface: #111113;
+  --bg-surface-raised: #18181B;
+  --bg-surface-hover: #1E1E22;
+  --bg-input: #0F0F11;
+
+  /* Borders */
+  --border-default: #27272A;
+  --border-hover: #3F3F46;
+  --border-active: #52525B;
+
+  /* Text */
+  --text-primary: #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-tertiary: #71717A;
+
+  /* The Three Colors (Ive mandate) */
+  --color-healthy: #22C55E;
+  --color-healthy-dim: #166534;
+  --color-warning: #F59E0B;
+  --color-warning-dim: #78350F;
+  --color-critical: #EF4444;
+  --color-critical-dim: #7F1D1D;
+
+  /* Accent */
+  --color-accent: #3B82F6;
+  --color-accent-dim: #1E3A5F;
+
+  /* Agent Identity Colors */
+  --agent-orchestrator: #A1A1AA;
+  --agent-mapper: #8B5CF6;
+  --agent-quality: #06B6D4;
+  --agent-pattern: #F97316;
+  --agent-security: #EF4444;
+  --agent-doctor: #22C55E;
+  --agent-senso: #3B82F6;
+
+  /* Typography */
+  --font-display: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --font-heading: system-ui, -apple-system, sans-serif;
+  --font-body: system-ui, -apple-system, sans-serif;
+  --font-code: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Type Scale */
+  --text-hero: 7rem;
+  --text-score-number: 2.5rem;
+  --text-h1: 1.75rem;
+  --text-h2: 1.25rem;
+  --text-body: 0.9375rem;
+  --text-small: 0.8125rem;
+  --text-micro: 0.6875rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --space-10: 4rem;
+  --space-12: 5rem;
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.5);
+  --shadow-glow-healthy: 0 0 40px rgba(34,197,94,0.15);
+  --shadow-glow-warning: 0 0 40px rgba(245,158,11,0.15);
+  --shadow-glow-critical: 0 0 40px rgba(239,68,68,0.15);
+  --shadow-glow-accent: 0 0 30px rgba(59,130,246,0.12);
+
+  /* Graph tokens */
+  --node-sm: 8px;
+  --node-md: 14px;
+  --node-lg: 22px;
+  --node-xl: 32px;
+  --node-file: #A1A1AA;
+  --node-directory: #71717A;
+  --node-function: #A78BFA;
+  --node-package: #60A5FA;
+  --node-endpoint: #34D399;
+  --edge-default: #27272A;
+  --edge-import: #3F3F46;
+  --edge-vulnerability: #EF4444;
+  --edge-width-default: 1px;
+  --edge-width-chain: 2.5px;
+  --edge-width-highlighted: 3.5px;
+}
+
+/* ── Base ─────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+/* ── Utility classes ──────────────────────────────────────── */
+
+.font-mono { font-family: var(--font-code); }
+.font-display { font-family: var(--font-display); }
+
+.text-healthy { color: var(--color-healthy); }
+.text-warning  { color: var(--color-warning); }
+.text-critical { color: var(--color-critical); }
+.text-accent   { color: var(--color-accent); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary  { color: var(--text-tertiary); }
+
+.bg-surface       { background-color: var(--bg-surface); }
+.bg-surface-raised { background-color: var(--bg-surface-raised); }
+.border-default   { border-color: var(--border-default); }
+
+/* severity badge colours */
+.badge-critical { background: rgba(239,68,68,0.15);  color: #EF4444; border: 1px solid rgba(239,68,68,0.3);  }
+.badge-warning  { background: rgba(245,158,11,0.15); color: #F59E0B; border: 1px solid rgba(245,158,11,0.3); }
+.badge-info     { background: rgba(59,130,246,0.15); color: #3B82F6; border: 1px solid rgba(59,130,246,0.3); }
+.badge-healthy  { background: rgba(34,197,94,0.15);  color: #22C55E; border: 1px solid rgba(34,197,94,0.3);  }
+
+/* glow shadows */
+.glow-healthy  { box-shadow: var(--shadow-glow-healthy); }
+.glow-warning  { box-shadow: var(--shadow-glow-warning); }
+.glow-critical { box-shadow: var(--shadow-glow-critical); }
+.glow-accent   { box-shadow: var(--shadow-glow-accent); }
+
+/* focus ring */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* subtle grid background for landing */
+.bg-grid {
+  background-image:
+    linear-gradient(var(--border-default) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-default) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center center;
+}
+
+/* ── Animations ───────────────────────────────────────────── */
+
+@keyframes pulse-once {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-slide-up { animation: slide-up 0.3s ease-out both; }
+.animate-fade-in  { animation: fade-in 0.3s ease-out both; }
+.animate-spin     { animation: spin 0.8s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

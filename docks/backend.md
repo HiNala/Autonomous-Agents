@@ -1,5 +1,5 @@
-# VIBE CHECK — BACKEND PRD v3.0
-## Agent System, Sponsor Integrations & Infrastructure
+# VIBE CHECK — BACKEND PRD v4.0
+## Python + FastAPI — Agent System, Sponsor Integrations & Infrastructure
 
 *Digital Studio Labs — February 27, 2026*
 
@@ -24,6 +24,7 @@
 8. Senso Content Architecture
 9. Processing Pipeline & Data Flow
 10. Build Plan (Backend Focus)
+11. Python Project Structure
 
 ---
 
@@ -40,6 +41,13 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
                                  │
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
+│                 NEXT.JS FRONTEND (localhost:3000)                        │
+│          Dashboard · Graph · Findings · WebSocket Client                 │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │ REST + WebSocket
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│              FASTAPI BACKEND (localhost:8000)                            │
 │                     ORCHESTRATOR AGENT                                   │
 │  Clone → Detect Stack → Dispatch Agents → Aggregate → Score             │
 └──┬──────────┬──────────┬──────────┬──────────┬──────────┬───────────────┘
@@ -62,21 +70,40 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
 └──────────────────┘ └───────────────────┘ └──────────────────────────┘
 ```
 
+### Split Architecture: Why Python Backend + Next.js Frontend
+
+| Concern | Decision | Rationale |
+|---------|----------|-----------|
+| **Backend** | **Python 3.12 + FastAPI** | Native async, best-in-class AI/ML SDKs (openai, tavily-python, gliner2), Pydantic for validation, asyncio for parallel agents |
+| **Frontend** | Next.js 15 (App Router) | React ecosystem, Cytoscape.js for graph viz, Framer Motion animations, Tailwind CSS |
+| **Communication** | REST + WebSocket | FastAPI serves both; frontend calls `:8000/api/v1/*` |
+
+**Why Python over Node.js for the backend:**
+- Fastino's primary SDK is Python (`pip install gliner2`)
+- OpenAI's Python SDK is more mature with better async support
+- Tavily's Python SDK (`tavily-python`) is first-class
+- Neo4j's async Python driver (`neo4j[async]`) is excellent
+- `asyncio.gather()` gives clean parallel agent execution
+- Tree-sitter Python bindings are more robust
+- Pydantic models eliminate runtime type bugs
+
 ### Backend Tech Stack
 
 | Component | Technology | Notes |
 |-----------|------------|-------|
-| Runtime | Next.js 15 API Routes (Node.js) | Local-first; shared repo with frontend |
-| Language | TypeScript | Shared types with frontend via contracts |
-| Graph DB | Neo4j (AuraDB Free or Desktop) | Bolt protocol, neo4j driver |
-| LLM (Demo) | Fastino TLMs + GLiNER-2 | 99x faster, CPU-optimized, free tier |
-| LLM (Backup) | OpenAI GPT-4o | Structured outputs, tool calling |
-| Web Search | Tavily API | CVE search + page extraction |
-| Knowledge Base | Senso Context OS | Persistent cross-repo intelligence |
-| State | SQLite (local) or in-memory JSON | Analysis records, agent status |
-| Repo Storage | Local `/tmp` directory | Cloned repos |
-| Real-time | WebSocket (ws library) | Agent progress streaming |
-| Parsing | Tree-sitter / regex / AST | Code structure extraction |
+| Runtime | Python 3.12 + FastAPI | Async-first, uvicorn server |
+| Validation | Pydantic v2 | Request/response models, settings |
+| Graph DB | Neo4j (AuraDB Free or Desktop) | `neo4j[async]` async driver |
+| LLM (Demo) | Fastino TLMs + GLiNER-2 | `pip install gliner2` + REST API |
+| LLM (Backup) | OpenAI GPT-4o | `pip install openai` async client |
+| Web Search | Tavily API | `pip install tavily-python` |
+| Knowledge Base | Senso Context OS | `httpx` async HTTP client |
+| State | SQLite via `aiosqlite` | Async SQLite, analysis records |
+| Repo Storage | Local `/tmp` directory | Cloned repos via `asyncio.create_subprocess_exec` |
+| Real-time | FastAPI WebSockets | Built-in via Starlette, no extra deps |
+| Parsing | Tree-sitter + `ast` module | Code structure extraction |
+| HTTP Client | `httpx` (async) | All external API calls |
+| Task Runner | `asyncio.gather` + `asyncio.TaskGroup` | Parallel agent execution |
 
 ---
 
@@ -86,16 +113,17 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
 
 | Component | Local Setup (DEFAULT) | AWS Optional (Stretch) |
 |-----------|----------------------|----------------------|
-| Backend API | Next.js API routes, localhost:3000 | Lambda + API Gateway |
+| Backend API | FastAPI, uvicorn, localhost:8000 | Lambda + API Gateway (Mangum adapter) |
+| Frontend | Next.js, localhost:3000 | Vercel |
 | Graph DB | Neo4j AuraDB Free (cloud) or Desktop | Same |
 | Repo Storage | Local `/tmp/vibe-check/repos/` | S3 bucket |
-| State/DB | SQLite via better-sqlite3 | DynamoDB |
-| Agent Execution | Sequential/parallel in-process | Lambda per agent |
-| Frontend | Same Next.js app | Vercel |
+| State/DB | SQLite via aiosqlite | DynamoDB via aioboto3 |
+| Agent Execution | asyncio.gather in-process | Lambda per agent |
 
 ### Environment Variables
 
 ```bash
+# .env — loaded via pydantic-settings
 # Required — Sponsor APIs
 FASTINO_API_KEY=your_fastino_key          # Primary demo inferencing
 OPENAI_API_KEY=sk-...                      # Backup reasoning
@@ -106,9 +134,49 @@ NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_password
 GITHUB_TOKEN=ghp_...                       # GitHub API (optional, for rate limits)
 
+# Server
+HOST=0.0.0.0
+PORT=8000
+CORS_ORIGINS=["http://localhost:3000"]     # Next.js frontend
+
 # Optional — Stretch
-YUTORI_API_KEY=your_yutori_key            # Deep web research
-AWS_REGION=us-east-1                       # AWS deployment
+YUTORI_API_KEY=your_yutori_key
+AWS_REGION=us-east-1
+```
+
+### Settings Model (Pydantic)
+
+```python
+# app/core/config.py
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    # Sponsor APIs
+    fastino_api_key: str
+    openai_api_key: str
+    tavily_api_key: str
+    senso_api_key: str
+    neo4j_uri: str
+    neo4j_username: str = "neo4j"
+    neo4j_password: str
+    github_token: str | None = None
+
+    # Server
+    host: str = "0.0.0.0"
+    port: int = 8000
+    cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Limits
+    max_files: int = 500
+    agent_timeout_seconds: int = 60
+    clone_dir: str = "/tmp/vibe-check/repos"
+
+    # Optional
+    yutori_api_key: str | None = None
+
+    model_config = {"env_file": ".env"}
+
+settings = Settings()
 ```
 
 ---
@@ -121,18 +189,82 @@ Fastino's Task-Specific Language Models (TLMs) are purpose-built for the exact t
 
 ### The Dual-Provider Architecture
 
-```typescript
-// lib/llm-provider.ts — Unified LLM abstraction
-interface LLMProvider {
-  extractEntities(text: string, schema: string[]): Promise<EntityResult>;
-  classifyText(text: string, categories: string[]): Promise<ClassifyResult>;
-  extractJSON(text: string, schema: object): Promise<any>;
-  reason(systemPrompt: string, userPrompt: string): Promise<string>;
-  reasonStructured(systemPrompt: string, userPrompt: string, jsonSchema: object): Promise<any>;
-}
+```python
+# app/llm/provider.py — Unified LLM abstraction
+from abc import ABC, abstractmethod
+from typing import Any
 
-// Fastino handles: extraction, classification, structured parsing
-// OpenAI handles: open-ended reasoning, complex code analysis, documentation generation
+class LLMProvider(ABC):
+    @abstractmethod
+    async def extract_entities(self, text: str, labels: list[str]) -> dict: ...
+
+    @abstractmethod
+    async def classify_text(self, text: str, categories: list[str]) -> dict: ...
+
+    @abstractmethod
+    async def extract_json(self, text: str, schema: dict) -> Any: ...
+
+    @abstractmethod
+    async def reason(self, system_prompt: str, user_prompt: str) -> str: ...
+
+    @abstractmethod
+    async def reason_structured(self, system_prompt: str, user_prompt: str, json_schema: dict) -> Any: ...
+
+
+class FastinoProvider(LLMProvider):
+    """Primary — fast extraction, classification, structured parsing."""
+    BASE_URL = "https://api.fastino.ai"
+
+    async def extract_entities(self, text: str, labels: list[str]) -> dict:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{self.BASE_URL}/gliner-2", json={
+                "task": "extract_entities",
+                "text": text,
+                "schema": labels,
+            }, headers=self._headers(), timeout=10.0)
+            return resp.json()["result"]
+
+    async def classify_text(self, text: str, categories: list[str]) -> dict:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{self.BASE_URL}/gliner-2", json={
+                "task": "classify_text",
+                "text": text,
+                "schema": {"categories": categories},
+            }, headers=self._headers(), timeout=10.0)
+            return resp.json()["result"]
+
+    async def extract_json(self, text: str, schema: dict) -> Any:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{self.BASE_URL}/gliner-2", json={
+                "task": "extract_json",
+                "text": text,
+                "schema": schema,
+            }, headers=self._headers(), timeout=10.0)
+            return resp.json()["result"]
+
+    # Fastino doesn't do open-ended reasoning — falls through to OpenAI
+    async def reason(self, system_prompt: str, user_prompt: str) -> str:
+        raise NotImplementedError("Use OpenAI for reasoning tasks")
+
+    async def reason_structured(self, system_prompt: str, user_prompt: str, json_schema: dict) -> Any:
+        raise NotImplementedError("Use OpenAI for structured reasoning")
+
+
+class OpenAIProvider(LLMProvider):
+    """Backup — deep reasoning, code analysis, doc generation."""
+
+    async def reason_structured(self, system_prompt: str, user_prompt: str, json_schema: dict) -> Any:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_schema", "json_schema": json_schema},
+        )
+        return json.loads(response.choices[0].message.content)
 ```
 
 ### Agent → Provider Mapping
@@ -148,7 +280,7 @@ interface LLMProvider {
 | **Pattern** | Best practice scoring | Stretch: TLM structured output | ✅ `gpt-4o` structured outputs |
 | **Security** | CVE entity extraction | ✅ `extract_entities` → CVE IDs, versions, scores | regex fallback |
 | **Security** | Vulnerability reasoning | Stretch: TLM function calling | ✅ `gpt-4o` tool calling |
-| **Doctor** | Fix doc generation | Stretch: TLM text-to-JSON | ✅ `gpt-4o` generation |
+| **Doctor** | Fix doc generation | — | ✅ `gpt-4o` generation |
 | **Orchestrator** | Stack detection | ✅ `classify_text` → language/framework/build | `gpt-4o-mini` |
 | **Orchestrator** | Health score computation | Local algorithm (no LLM needed) | — |
 
@@ -177,260 +309,548 @@ During the demo, the terminal/dashboard will show:
 
 ## 4. AGENT SPECIFICATIONS
 
+All agents are async Python classes that receive a shared `AnalysisContext` and emit events via a `WebSocketBroadcaster`.
+
+### Base Agent Pattern
+
+```python
+# app/agents/base.py
+from abc import ABC, abstractmethod
+from app.models.analysis import AnalysisContext
+from app.ws.broadcaster import WebSocketBroadcaster
+
+class BaseAgent(ABC):
+    name: str
+    provider: str  # "fastino" | "openai" | "tavily" | "senso"
+
+    def __init__(self, ctx: AnalysisContext, ws: WebSocketBroadcaster):
+        self.ctx = ctx
+        self.ws = ws
+
+    async def run(self) -> None:
+        await self.ws.send_status(self.name, "running", 0.0, f"{self.name} starting...")
+        try:
+            await self.execute()
+            await self.ws.send_agent_complete(self.name, self.findings_count, self.provider)
+        except Exception as e:
+            await self.ws.send_error(self.name, str(e), recoverable=False)
+            raise
+
+    @abstractmethod
+    async def execute(self) -> None: ...
+```
+
 ### Agent 1: ORCHESTRATOR
 
 **Input:** GitHub URL
 **Output:** Dispatches all agents, aggregates results, computes Health Score
 **Sequence:** Clone → Detect Stack → Mapper → [Quality, Pattern, Security] parallel → Doctor → Senso Agent
 
-```typescript
-interface OrchestratorConfig {
-  repoUrl: string;
-  branch?: string;
-  scope: 'full' | 'security-only' | 'quality-only';
-  maxFiles: number;     // default 500
-  useSensoIntelligence: boolean;
-}
+```python
+# app/agents/orchestrator.py
+import asyncio
+import subprocess
 
-// Stack detection via Fastino classify_text
-const stackDetection = await fastino.classifyText(
-  packageJsonContent + fileList,
-  ['next.js', 'react', 'express', 'fastapi', 'django', 'vue', 'angular', 'svelte']
-);
+class OrchestratorAgent(BaseAgent):
+    name = "orchestrator"
+    provider = "fastino"
+
+    async def execute(self):
+        # 1. Clone repo
+        await self.ws.send_status("orchestrator", "running", 0.1, "Cloning repository...")
+        clone_dir = await self._clone_repo(self.ctx.repo_url, self.ctx.branch)
+        self.ctx.clone_dir = clone_dir
+
+        # 2. Detect stack via Fastino
+        await self.ws.send_status("orchestrator", "running", 0.3, "Detecting tech stack...")
+        self.ctx.detected_stack = await self._detect_stack(clone_dir)
+
+        # 3. Run Mapper (sequential — must complete before analysis agents)
+        mapper = MapperAgent(self.ctx, self.ws)
+        await mapper.run()
+
+        # 4. Run Quality, Pattern, Security in parallel
+        await self.ws.send_status("orchestrator", "running", 0.6, "Running analysis agents...")
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(QualityAgent(self.ctx, self.ws).run())
+            tg.create_task(PatternAgent(self.ctx, self.ws).run())
+            tg.create_task(SecurityAgent(self.ctx, self.ws).run())
+
+        # 5. Doctor (needs findings from all agents)
+        doctor = DoctorAgent(self.ctx, self.ws)
+        await doctor.run()
+
+        # 6. Senso Knowledge Agent
+        senso = SensoKnowledgeAgent(self.ctx, self.ws)
+        await senso.run()
+
+        # 7. Compute Health Score (local, no LLM)
+        health_score = compute_health_score(self.ctx.findings, self.ctx.stats)
+        self.ctx.health_score = health_score
+        await self.ws.send_complete(health_score, self.ctx.findings_summary)
+
+    async def _clone_repo(self, url: str, branch: str | None) -> str:
+        clone_dir = f"/tmp/vibe-check/repos/{self.ctx.analysis_id}"
+        cmd = ["git", "clone", "--depth=1"]
+        if branch:
+            cmd += ["--branch", branch]
+        cmd += [url, clone_dir]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Clone failed for {url}")
+        return clone_dir
+
+    async def _detect_stack(self, clone_dir: str) -> dict:
+        """Use Fastino classify_text on package files + file listing."""
+        file_listing = await self._get_file_listing(clone_dir)
+        result = await self.ctx.fastino.classify_text(
+            file_listing,
+            ["nextjs", "react", "express", "fastapi", "django", "vue", "angular", "svelte"]
+        )
+        return {
+            "languages": await self._detect_languages(clone_dir),
+            "frameworks": [result["label"]],
+            "packageManager": await self._detect_package_manager(clone_dir),
+            "buildSystem": result["label"],
+        }
 ```
 
 **Health Score Algorithm (local, no LLM):**
-```typescript
-function computeHealthScore(findings: Finding[], stats: RepoStats): HealthScore {
-  const weights = {
-    codeQuality: 0.2,    // Quality agent findings
-    patterns: 0.15,       // Pattern agent findings
-    security: 0.3,        // Security agent findings (highest weight)
-    dependencies: 0.2,    // Dependency freshness + CVEs
-    architecture: 0.15    // Structure patterns
-  };
 
-  // Each category: 10 - (critical * 3 + warning * 1 + info * 0.2), clamped 0-10
-  // Overall: weighted sum * 10, mapped to letter grade
-  // Letter grades: A+ (97-100), A (93-96), A- (90-92), B+ (87-89)... F (<60)
-}
+```python
+# app/scoring/health.py
+from app.models.shared import HealthScore, CategoryScore
+
+def compute_health_score(findings: list, stats: dict) -> HealthScore:
+    weights = {
+        "codeQuality": 0.20,
+        "patterns": 0.15,
+        "security": 0.30,   # highest weight
+        "dependencies": 0.20,
+        "architecture": 0.15,
+    }
+
+    def category_score(agent_findings: list) -> int:
+        penalty = sum(
+            3 if f.severity == "critical" else 1 if f.severity == "warning" else 0.2
+            for f in agent_findings
+        )
+        return max(0, min(10, round(10 - penalty)))
+
+    breakdown = {}
+    for cat, weight in weights.items():
+        agent_map = {"codeQuality": "quality", "patterns": "pattern",
+                     "security": "security", "dependencies": "security",
+                     "architecture": "pattern"}
+        cat_findings = [f for f in findings if f.agent == agent_map.get(cat, cat)]
+        score = category_score(cat_findings)
+        status = "healthy" if score >= 7 else "warning" if score >= 4 else "critical"
+        breakdown[cat] = CategoryScore(score=score, max=10, status=status)
+
+    overall = round(sum(
+        breakdown[cat].score * weights[cat] for cat in weights
+    ) * 10)
+    letter_grade = score_to_grade(overall)
+
+    return HealthScore(
+        overall=overall,
+        letterGrade=letter_grade,
+        breakdown=breakdown,
+        confidence=0.91,
+    )
+
+def score_to_grade(score: int) -> str:
+    if score >= 97: return "A+"
+    if score >= 93: return "A"
+    if score >= 90: return "A-"
+    if score >= 87: return "B+"
+    if score >= 83: return "B"
+    if score >= 80: return "B-"
+    if score >= 77: return "C+"
+    if score >= 73: return "C"
+    if score >= 70: return "C-"
+    if score >= 67: return "D+"
+    if score >= 63: return "D"
+    if score >= 60: return "D-"
+    return "F"
 ```
 
 ### Agent 2: MAPPER (Foundation)
 
-**Input:** Cloned repository directory
-**Output:** Complete Neo4j knowledge graph
 **Primary LLM:** Fastino (classification + extraction)
 
-**Processing pipeline:**
-1. Walk filesystem → create (:File) and (:Directory) nodes
-2. **Fastino `classify_text`** → categorize each file (source/test/config/docs/assets/build/ci-cd)
-3. Parse `package.json`/`requirements.txt` → **Fastino `extract_entities`** → (:Package) nodes
-4. Regex + **Fastino `extract_json`** → extract imports → (:File)-[:IMPORTS]->(:File) edges
-5. **Fastino `extract_json`** → extract functions/classes with line numbers → (:Function)/(:Class) nodes
-6. Parse routes → (:Endpoint) nodes with handler relationships
-
 ```python
-# Fastino API call for file categorization (batch)
-POST https://api.fastino.ai/gliner-2
-{
-  "task": "classify_text",
-  "text": "src/routes/api.js - contains Express route handlers with middleware",
-  "schema": {
-    "categories": ["source", "test", "config", "docs", "assets", "build", "ci-cd"]
-  }
-}
-# Response: { "result": { "label": "source", "confidence": 0.97 } }
+# app/agents/mapper.py
+import os
+from pathlib import Path
 
-# Fastino API call for function extraction
-POST https://api.fastino.ai/gliner-2
-{
-  "task": "extract_json",
-  "text": "function searchHandler(req, res) { ... } \nexport async function getUser(id) { ... }",
-  "schema": {
-    "functions": [
-      "name::str::Function name",
-      "params::str::Parameter list",
-      "exported::str::Is exported (yes/no)",
-      "async::str::Is async (yes/no)",
-      "start_line::str::Start line number"
-    ]
-  }
-}
+class MapperAgent(BaseAgent):
+    name = "mapper"
+    provider = "fastino"
+
+    async def execute(self):
+        clone_dir = Path(self.ctx.clone_dir)
+
+        # 1. Walk filesystem → File/Directory nodes
+        files = await self._walk_files(clone_dir)
+        await self.ws.send_status("mapper", "running", 0.2, f"Found {len(files)} files...")
+
+        # 2. Fastino batch classify all files
+        import time
+        t0 = time.perf_counter()
+        classifications = await self._classify_files(files)
+        elapsed_ms = round((time.perf_counter() - t0) * 1000)
+        await self.ws.send_fastino_speed(f"{len(files)} files classified in {elapsed_ms}ms")
+
+        # 3. Create graph nodes + stream to frontend
+        for file_info, category in zip(files, classifications):
+            node = await self._create_file_node(file_info, category)
+            await self.ctx.neo4j.merge_file(node)
+            await self.ws.send_graph_node(node)
+
+        # 4. Parse dependencies
+        await self.ws.send_status("mapper", "running", 0.5, "Extracting dependencies...")
+        deps = await self._extract_dependencies(clone_dir)
+        for dep in deps:
+            await self.ctx.neo4j.merge_package(dep)
+            await self.ws.send_graph_node(dep.to_graph_node())
+
+        # 5. Parse imports → edges
+        await self.ws.send_status("mapper", "running", 0.7, "Mapping imports...")
+        edges = await self._extract_imports(files, clone_dir)
+        for edge in edges:
+            await self.ctx.neo4j.merge_edge(edge)
+            await self.ws.send_graph_edge(edge)
+
+        # 6. Extract functions via Fastino extract_json
+        await self.ws.send_status("mapper", "running", 0.9, "Extracting functions...")
+        functions = await self._extract_functions(files, clone_dir)
+        for func in functions:
+            await self.ctx.neo4j.merge_function(func)
+
+    async def _classify_files(self, files: list) -> list[str]:
+        """Batch classify using Fastino — this is the speed showpiece."""
+        results = []
+        for file_info in files:
+            result = await self.ctx.fastino.classify_text(
+                f"{file_info['path']} - {file_info.get('first_lines', '')}",
+                ["source", "test", "config", "docs", "assets", "build", "ci-cd"]
+            )
+            results.append(result["label"])
+        return results
+
+    async def _extract_dependencies(self, clone_dir: Path) -> list:
+        """Parse package.json/requirements.txt → Fastino extract_entities."""
+        pkg_json = clone_dir / "package.json"
+        if pkg_json.exists():
+            content = pkg_json.read_text()
+            result = await self.ctx.fastino.extract_entities(
+                content,
+                ["package_name", "version", "dev_dependency"]
+            )
+            return self._parse_package_entities(result)
+        return []
+
+    async def _extract_functions(self, files: list, clone_dir: Path) -> list:
+        """Fastino extract_json for function signatures."""
+        functions = []
+        source_files = [f for f in files if f.get("category") == "source"]
+        for file_info in source_files[:50]:  # cap for performance
+            content = (clone_dir / file_info["path"]).read_text(errors="ignore")[:2000]
+            result = await self.ctx.fastino.extract_json(content, {
+                "functions": [
+                    "name::str::Function name",
+                    "params::str::Parameter list",
+                    "exported::str::Is exported (yes/no)",
+                    "async::str::Is async (yes/no)",
+                    "start_line::str::Start line number",
+                ]
+            })
+            functions.extend(self._parse_function_entities(result, file_info["path"]))
+        return functions
 ```
 
 ### Agent 3: QUALITY
 
-**Input:** Neo4j graph + source files
-**Output:** Bug findings, code smells, dead code, complexity hotspots
-**Primary LLM:** OpenAI gpt-4o (complex reasoning), Fastino (classification)
+**Two-pass: Fastino fast scan → OpenAI deep analysis**
 
-**Two-pass analysis:**
-1. **Pass 1 — Fastino fast scan:** Classify code blocks for smell categories
-2. **Pass 2 — OpenAI deep analysis:** Detailed reasoning on flagged blocks
+```python
+# app/agents/quality.py
+class QualityAgent(BaseAgent):
+    name = "quality"
+    provider = "fastino"  # primary, switches to openai for deep pass
 
-```typescript
-// Pass 1: Fastino classifies code blocks quickly
-const smellClassification = await fastino.classifyText(codeBlock, {
-  categories: [
-    'clean', 'unhandled_error', 'type_mismatch', 'dead_code',
-    'god_function', 'magic_number', 'deep_nesting', 'duplicated_logic'
-  ]
-});
+    async def execute(self):
+        source_files = await self.ctx.neo4j.get_source_files()
 
-// Pass 2: Only blocks classified as issues get OpenAI deep analysis
-if (smellClassification.label !== 'clean') {
-  const finding = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [...],
-    response_format: { type: 'json_schema', json_schema: findingSchema }
-  });
-}
+        # Pass 1: Fastino fast scan — classify code blocks
+        flagged_blocks = []
+        for i, file in enumerate(source_files):
+            progress = i / len(source_files)
+            await self.ws.send_status("quality", "running", progress * 0.5,
+                                      f"Fast scan: {file['name']}...")
+            content = self._read_file(file["path"])
+            result = await self.ctx.fastino.classify_text(content[:2000], [
+                "clean", "unhandled_error", "type_mismatch", "dead_code",
+                "god_function", "magic_number", "deep_nesting", "duplicated_logic"
+            ])
+            if result["label"] != "clean":
+                flagged_blocks.append({"file": file, "content": content, "smell": result})
+
+        # Pass 2: OpenAI deep analysis on flagged blocks only
+        await self.ws.send_status("quality", "running", 0.6,
+                                  f"Deep analysis on {len(flagged_blocks)} flagged files...")
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+        for block in flagged_blocks:
+            response = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": QUALITY_SYSTEM_PROMPT},
+                    {"role": "user", "content": self._build_analysis_prompt(block)},
+                ],
+                response_format={"type": "json_schema", "json_schema": FINDING_SCHEMA},
+            )
+            findings = json.loads(response.choices[0].message.content)
+            for finding_data in findings.get("findings", []):
+                finding = self._create_finding(finding_data, block["file"])
+                await self.ctx.neo4j.merge_finding(finding)
+                await self.ws.send_finding(finding)
+                self.ctx.findings.append(finding)
 ```
-
-**Finds:** Unhandled errors, type mismatches, dead exports, god functions (>50 lines), magic numbers, duplicated code, deep nesting (>4 levels)
 
 ### Agent 4: PATTERN
 
-**Input:** Neo4j graph + project structure
-**Output:** Best practice compliance scores, anti-pattern detections
-**Primary LLM:** Fastino (classification), OpenAI (scoring)
+**Fastino classification → OpenAI scoring**
 
-**Analysis targets:**
-- Framework conventions (Next.js file-based routing, React hook rules)
-- Naming consistency (camelCase, PascalCase compliance)
-- Layer violations (direct DB access from UI components)
-- Separation of concerns (business logic in route handlers)
-- Directory structure (standard patterns vs chaos)
+```python
+# app/agents/pattern.py
+class PatternAgent(BaseAgent):
+    name = "pattern"
+    provider = "fastino"
 
-```typescript
-// Fastino classifies structural patterns
-const patternResult = await fastino.classifyText(
-  `Project structure: ${directoryTree}\nFramework: ${detectedFramework}`,
-  {
-    categories: [
-      'well_structured', 'missing_separation', 'mixed_concerns',
-      'non_standard_layout', 'missing_tests', 'missing_types'
-    ]
-  }
-);
+    async def execute(self):
+        # Get project structure from Neo4j
+        structure = await self.ctx.neo4j.get_project_structure()
+        framework = self.ctx.detected_stack["frameworks"][0]
+
+        # Fastino: classify structural patterns
+        result = await self.ctx.fastino.classify_text(
+            f"Project structure:\n{structure}\nFramework: {framework}",
+            ["well_structured", "missing_separation", "mixed_concerns",
+             "non_standard_layout", "missing_tests", "missing_types"]
+        )
+
+        # OpenAI: detailed pattern scoring
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": PATTERN_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Framework: {framework}\nStructure:\n{structure}\n"
+                                             f"Initial classification: {result['label']}"},
+            ],
+            response_format={"type": "json_schema", "json_schema": PATTERN_FINDING_SCHEMA},
+        )
+        findings = json.loads(response.choices[0].message.content)
+        for finding_data in findings.get("findings", []):
+            finding = self._create_finding(finding_data)
+            await self.ctx.neo4j.merge_finding(finding)
+            await self.ws.send_finding(finding)
+            self.ctx.findings.append(finding)
 ```
 
 ### Agent 5: SECURITY
 
-**Input:** Neo4j graph + dependency list
-**Output:** CVE findings, code vulnerabilities, vulnerability chains
-**Primary LLM:** OpenAI (chain reasoning), Fastino (CVE entity extraction), Tavily (web search)
+**Tavily search → Fastino CVE extraction → OpenAI chain reasoning**
 
-**Pipeline:**
-1. Extract dependency list from Neo4j
-2. **Tavily `/search`** → search for CVEs per dependency (batch by 3-5 packages)
-3. **Fastino `extract_entities`** → parse CVE IDs, CVSS scores, versions from search results
-4. **Tavily `/extract`** → deep extraction from NVD advisory pages
-5. **OpenAI `gpt-4o`** → reason about vulnerability chains using graph context
-6. Write (:CVE), (:Finding), (:VulnerabilityChain) nodes to Neo4j
+```python
+# app/agents/security.py
+from tavily import AsyncTavilyClient
 
-```typescript
-// Step 1: Tavily search for CVEs
-const tavilyResult = await tavily.search({
-  query: `"express" "4.17.1" CVE vulnerability security advisory`,
-  search_depth: 'advanced',
-  include_answer: true,
-  max_results: 5,
-  include_domains: ['nvd.nist.gov', 'github.com/advisories', 'security.snyk.io']
-});
+class SecurityAgent(BaseAgent):
+    name = "security"
+    provider = "tavily"
 
-// Step 2: Fastino extracts structured CVE data from search results
-const cveEntities = await fastino.extractEntities(
-  tavilyResult.results.map(r => r.content).join('\n'),
-  ['cve_id', 'cvss_score', 'affected_version', 'fixed_version', 'severity', 'exploit_status']
-);
+    async def execute(self):
+        packages = await self.ctx.neo4j.get_packages()
+        tavily = AsyncTavilyClient(api_key=settings.tavily_api_key)
 
-// Step 3: OpenAI maps vulnerability chains through the graph
-const chainAnalysis = await openai.chat.completions.create({
-  model: 'gpt-4o',
-  messages: [{
-    role: 'system',
-    content: 'You are a security analyst. Given CVE findings and a codebase graph, identify vulnerability chains...'
-  }, {
-    role: 'user',
-    content: `CVEs found: ${JSON.stringify(cveEntities)}\n\nGraph context: ${graphContext}`
-  }],
-  response_format: { type: 'json_schema', json_schema: chainSchema }
-});
+        # Step 1: Tavily search for CVEs (batch by 3 packages)
+        all_cves = []
+        for batch in self._chunk(packages, 3):
+            query = " ".join(f'"{p.name}" "{p.version}" CVE' for p in batch)
+            await self.ws.send_status("security", "running", 0.2,
+                                      f"Searching CVEs: {', '.join(p.name for p in batch)}...")
+            result = await tavily.search(
+                query=query,
+                search_depth="advanced",
+                include_answer=True,
+                max_results=5,
+                include_domains=["nvd.nist.gov", "github.com/advisories", "security.snyk.io"],
+            )
+
+            # Step 2: Fastino extract structured CVE data from results
+            combined_content = "\n".join(r["content"] for r in result["results"])
+            entities = await self.ctx.fastino.extract_entities(combined_content, [
+                "cve_id", "cvss_score", "affected_version", "fixed_version",
+                "severity", "exploit_status"
+            ])
+            all_cves.extend(self._parse_cve_entities(entities, batch))
+
+        # Step 3: Deep extraction from advisory pages
+        for cve in all_cves[:5]:  # cap for speed
+            if cve.advisory_url:
+                extract_result = await tavily.extract(
+                    urls=[cve.advisory_url],
+                    extract_depth="advanced",
+                )
+                cve.enrich(extract_result)
+
+        # Step 4: OpenAI chain reasoning using graph context
+        await self.ws.send_status("security", "running", 0.7, "Mapping vulnerability chains...")
+        graph_context = await self.ctx.neo4j.get_vulnerability_context()
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": CHAIN_ANALYSIS_PROMPT},
+                {"role": "user", "content": f"CVEs: {json.dumps([c.dict() for c in all_cves])}\n"
+                                             f"Graph context:\n{graph_context}"},
+            ],
+            response_format={"type": "json_schema", "json_schema": CHAIN_SCHEMA},
+        )
+        chains = json.loads(response.choices[0].message.content)
+
+        # Write to Neo4j
+        for cve in all_cves:
+            await self.ctx.neo4j.merge_cve(cve)
+            finding = cve.to_finding()
+            await self.ctx.neo4j.merge_finding(finding)
+            await self.ws.send_finding(finding)
+            self.ctx.findings.append(finding)
+        for chain in chains.get("chains", []):
+            await self.ctx.neo4j.merge_chain(chain)
 ```
 
 ### Agent 6: DOCTOR
 
-**Input:** All findings from agents 3-5 + Senso search results
-**Output:** Prioritized fix documentation with code examples
-**Primary LLM:** OpenAI gpt-4o (doc generation), Senso (historical fixes)
+```python
+# app/agents/doctor.py
+class DoctorAgent(BaseAgent):
+    name = "doctor"
+    provider = "openai"
 
-**Process:**
-1. Collect all findings from Quality, Pattern, Security agents
-2. **Senso `/search`** → find historical fixes from previous scans
-3. **OpenAI `gpt-4o`** → generate fix documentation referencing specific files/lines
-4. Priority ordering by: chains resolved × blast radius × severity
-5. Compute effort estimates
+    async def execute(self):
+        findings = self.ctx.findings
 
-```typescript
-// Query Senso for historical fixes
-const historicalFixes = await senso.search({
-  query: `fix documentation for ${cve.id} ${packageName}`,
-  max_results: 5
-});
+        # Step 1: Query Senso for historical fixes
+        await self.ws.send_status("doctor", "running", 0.1,
+                                  "Searching previous fix documentation...")
+        historical_fixes = await self.ctx.senso.search(
+            query=f"fix documentation for {self.ctx.detected_stack['frameworks'][0]} vulnerabilities",
+            max_results=5,
+        )
 
-// Generate fix docs with graph context + historical intelligence
-const fixDoc = await openai.chat.completions.create({
-  model: 'gpt-4o',
-  messages: [{
-    role: 'system',
-    content: `Generate fix documentation. Reference exact files and line numbers. 
-              Historical context from previous scans: ${historicalFixes.answer}`
-  }, {
-    role: 'user',
-    content: `Finding: ${finding}\nAffected code: ${affectedCode}\nGraph context: ${graphContext}`
-  }],
-  response_format: { type: 'json_schema', json_schema: fixDocSchema }
-});
+        # Step 2: Generate fix docs with OpenAI
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+
+        for i, finding in enumerate(findings):
+            if finding.severity == "info":
+                continue  # skip info-level for fix generation
+            progress = 0.2 + (i / len(findings)) * 0.7
+            await self.ws.send_status("doctor", "running", progress,
+                                      f"Generating fix: {finding.title[:40]}...")
+
+            graph_context = await self.ctx.neo4j.get_finding_context(finding.id)
+            response = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": FIX_DOC_SYSTEM_PROMPT},
+                    {"role": "user", "content": (
+                        f"Finding: {finding.model_dump_json()}\n"
+                        f"Affected code:\n{graph_context}\n"
+                        f"Historical fixes from Senso:\n{historical_fixes.answer if historical_fixes else 'None'}"
+                    )},
+                ],
+                response_format={"type": "json_schema", "json_schema": FIX_DOC_SCHEMA},
+            )
+            fix = self._create_fix(json.loads(response.choices[0].message.content), finding)
+            await self.ctx.neo4j.merge_fix(fix)
+            self.ctx.fixes.append(fix)
+
+        # Step 3: Priority ordering
+        self.ctx.fixes.sort(key=lambda f: (
+            {"critical": 0, "warning": 1, "info": 2}[f.severity],
+            -f.chains_resolved,
+        ))
+        for i, fix in enumerate(self.ctx.fixes):
+            fix.priority = i + 1
 ```
 
 ### Agent 7: SENSO KNOWLEDGE AGENT
 
-**Input:** All scan results + user queries
-**Output:** Persisted knowledge, cross-repo intelligence, generated content
-**Tech:** Senso SDK (all endpoints)
+```python
+# app/agents/senso_knowledge.py
+class SensoKnowledgeAgent(BaseAgent):
+    name = "senso"
+    provider = "senso"
 
-```
-SENSO KNOWLEDGE AGENT
-├── POST-SCAN INGESTION
-│   ├── Organize findings into Senso categories/topics
-│   ├── POST /content/raw per finding (title, summary, text, category_id, topic_id)
-│   ├── POST /content/raw per fix doc
-│   ├── POST /content/raw for repo profile
-│   └── Poll GET /content/{id} until processing_status == "completed"
-│
-├── PRE-SCAN INTELLIGENCE
-│   ├── POST /search for prior findings matching detected stack
-│   ├── POST /search for previous fix docs matching dependencies
-│   └── Feed historical intelligence to Doctor Agent
-│
-├── ON-DEMAND INTELLIGENCE (user queries from dashboard)
-│   ├── POST /search — natural language query across all scan data
-│   ├── POST /generate — generate reports from knowledge base
-│   └── POST /generate/prompt — prompt-driven analysis
-│
-├── KNOWLEDGE MANAGEMENT (app init)
-│   ├── POST /categories/batch — create 5 categories + 14 topics
-│   ├── POST /prompts (×4) — create analysis prompts
-│   ├── POST /templates (×2) — create output templates
-│   └── Store all IDs in app config
-│
-└── AUTOMATION (stretch)
-    ├── POST /rules — create classification rules
-    ├── POST /rules/{id}/values — add rule values
-    ├── POST /webhooks — register alert destinations
-    └── POST /triggers — link rules to webhooks
+    async def execute(self):
+        # Post-scan ingestion: persist all findings to Senso
+        await self.ws.send_status("senso", "running", 0.1,
+                                  "Persisting findings to knowledge base...")
+
+        # Ingest each finding
+        for i, finding in enumerate(self.ctx.findings):
+            progress = 0.1 + (i / len(self.ctx.findings)) * 0.4
+            content_id = await self.ctx.senso.ingest_content(
+                title=finding.title,
+                summary=f"{finding.severity}: {finding.description[:100]}",
+                text=finding.to_senso_markdown(),
+                category_id=self._get_category_id(finding),
+                topic_id=self._get_topic_id(finding),
+            )
+            finding.senso_content_id = content_id
+
+        # Ingest each fix
+        await self.ws.send_status("senso", "running", 0.6, "Persisting fix documentation...")
+        for fix in self.ctx.fixes:
+            content_id = await self.ctx.senso.ingest_content(
+                title=f"FIX: {fix.title}",
+                summary=fix.documentation.whats_wrong[:100],
+                text=fix.to_senso_markdown(),
+                category_id=self.ctx.senso_ids["fix_documentation"],
+                topic_id=self._get_fix_topic_id(fix),
+            )
+            fix.senso_content_id = content_id
+
+        # Ingest repo profile
+        await self.ws.send_status("senso", "running", 0.8, "Creating repo profile...")
+        await self.ctx.senso.ingest_content(
+            title=f"Repo Profile: {self.ctx.repo_name}",
+            summary=f"{self.ctx.detected_stack['frameworks'][0]} app, "
+                    f"{self.ctx.stats['totalFiles']} files, "
+                    f"Health Score: {self.ctx.health_score.letter_grade}",
+            text=self._build_repo_profile_markdown(),
+            category_id=self.ctx.senso_ids["repository_profiles"],
+            topic_id=self.ctx.senso_ids["health_scores"],
+        )
+
+        # Generate cross-repo intelligence
+        await self.ws.send_status("senso", "running", 0.9, "Generating cross-repo intelligence...")
+        intelligence = await self.ctx.senso.generate(
+            prompt_id=self.ctx.senso_ids["cross_repo_analyzer"],
+            content_type="security findings",
+        )
+        if intelligence:
+            await self.ws.send_senso_intelligence(intelligence.answer, intelligence.source_count)
 ```
 
 ---
@@ -439,103 +859,81 @@ SENSO KNOWLEDGE AGENT
 
 ### 5.1 FASTINO LABS — PRIMARY DEMO INFERENCING
 
-**Role:** Primary inferencing engine for entity extraction, text classification, structured data extraction, and function calling. 99x faster than LLMs with <150ms CPU latency. Ideal demo showpiece.
+**Role:** Primary inferencing engine. 99x faster than LLMs with <150ms CPU latency.
 
 **Base URL:** `https://api.fastino.ai`
 **Auth:** `Authorization: Bearer YOUR_FASTINO_KEY`
 **Free Tier:** 10,000 requests/month
-**SDK:** Python (`pip install gliner2`), also REST API
+**Python SDK:** `pip install gliner2` (also direct REST via httpx)
+
+#### Python Client
+
+```python
+# app/clients/fastino.py
+import httpx
+import time
+from app.core.config import settings
+
+class FastinoClient:
+    BASE_URL = "https://api.fastino.ai"
+
+    def __init__(self):
+        self._client = httpx.AsyncClient(
+            base_url=self.BASE_URL,
+            headers={"Authorization": f"Bearer {settings.fastino_api_key}"},
+            timeout=10.0,
+        )
+
+    async def extract_entities(self, text: str, labels: list[str]) -> dict:
+        t0 = time.perf_counter()
+        resp = await self._client.post("/gliner-2", json={
+            "task": "extract_entities",
+            "text": text,
+            "schema": labels,
+        })
+        resp.raise_for_status()
+        elapsed_ms = round((time.perf_counter() - t0) * 1000)
+        result = resp.json()["result"]
+        result["_latency_ms"] = elapsed_ms
+        return result
+
+    async def classify_text(self, text: str, categories: list[str]) -> dict:
+        t0 = time.perf_counter()
+        resp = await self._client.post("/gliner-2", json={
+            "task": "classify_text",
+            "text": text,
+            "schema": {"categories": categories},
+        })
+        resp.raise_for_status()
+        elapsed_ms = round((time.perf_counter() - t0) * 1000)
+        result = resp.json()["result"]
+        result["_latency_ms"] = elapsed_ms
+        return result
+
+    async def extract_json(self, text: str, schema: dict) -> dict:
+        t0 = time.perf_counter()
+        resp = await self._client.post("/gliner-2", json={
+            "task": "extract_json",
+            "text": text,
+            "schema": schema,
+        })
+        resp.raise_for_status()
+        elapsed_ms = round((time.perf_counter() - t0) * 1000)
+        result = resp.json()["result"]
+        result["_latency_ms"] = elapsed_ms
+        return result
+
+    async def close(self):
+        await self._client.aclose()
+```
 
 #### Endpoints
 
-| Endpoint | Method | Task Types | Purpose in VIBE CHECK |
-|----------|--------|------------|----------------------|
-| `/gliner-2` | POST | `extract_entities` | Extract package names, CVE IDs, function names, versions from code and advisory text |
-| `/gliner-2` | POST | `classify_text` | Classify files (source/test/config), classify code smells, detect anti-patterns, detect tech stack |
-| `/gliner-2` | POST | `extract_json` | Extract structured function signatures, endpoint routes, dependency metadata |
-
-#### `POST /gliner-2` — Entity Extraction
-
-```json
-{
-  "task": "extract_entities",
-  "text": "express@4.17.1 has CVE-2024-29041 with CVSS 9.1. Fixed in express@4.21.0.",
-  "schema": ["package_name", "version", "cve_id", "cvss_score", "fixed_version"]
-}
-// Response:
-{
-  "result": {
-    "entities": {
-      "package_name": ["express"],
-      "version": ["4.17.1"],
-      "cve_id": ["CVE-2024-29041"],
-      "cvss_score": ["9.1"],
-      "fixed_version": ["4.21.0"]
-    }
-  }
-}
-```
-
-#### `POST /gliner-2` — Text Classification
-
-```json
-{
-  "task": "classify_text",
-  "text": "function handleUpload(req, res) { const path = req.params.file; fs.readFile(path, ...) }",
-  "schema": {
-    "categories": [
-      "clean_code", "unhandled_error", "path_traversal_risk",
-      "injection_risk", "missing_validation", "hardcoded_secret"
-    ]
-  }
-}
-// Response:
-{
-  "result": { "label": "path_traversal_risk", "confidence": 0.92 }
-}
-```
-
-#### `POST /gliner-2` — Structured JSON Extraction
-
-```json
-{
-  "task": "extract_json",
-  "text": "export async function getUser(id: string): Promise<User> { ... } // line 45-67",
-  "schema": {
-    "function": [
-      "name::str::Function name",
-      "params::str::Parameters",
-      "return_type::str::Return type",
-      "is_async::str::yes or no",
-      "is_exported::str::yes or no"
-    ]
-  }
-}
-// Response:
-{
-  "result": {
-    "function": [{
-      "name": "getUser",
-      "params": "id: string",
-      "return_type": "Promise<User>",
-      "is_async": "yes",
-      "is_exported": "yes"
-    }]
-  }
-}
-```
-
-#### Fastino TLM Suite (Additional Models)
-
-Fastino also offers specialized TLMs beyond GLiNER-2:
-
-| TLM | VIBE CHECK Usage |
-|-----|-----------------|
-| **Function Calling** | Agent orchestration — route tasks to tools at CPU speed |
-| **Text to JSON** | Convert unstructured code analysis into structured findings |
-| **PII Redaction** | Strip secrets/keys from code before sending to external LLMs |
-| **Text Classification** | File categorization, smell detection, pattern classification |
-| **Information Extraction** | Package names, versions, CVE IDs, function signatures |
+| Endpoint | Method | Task Types | Purpose |
+|----------|--------|------------|--------|
+| `/gliner-2` | POST | `extract_entities` | Package names, CVE IDs, function names, versions |
+| `/gliner-2` | POST | `classify_text` | File categories, code smells, anti-patterns, tech stack |
+| `/gliner-2` | POST | `extract_json` | Structured function signatures, endpoint routes, dep metadata |
 
 #### Expected Usage Per Scan
 
@@ -552,221 +950,107 @@ Fastino also offers specialized TLMs beyond GLiNER-2:
 
 ### 5.2 OPENAI — BACKUP / DEEP REASONING
 
-**Role:** Backup for complex reasoning tasks that exceed Fastino's capabilities: multi-step code analysis, vulnerability chain synthesis, documentation generation with context.
-
 **Base URL:** `https://api.openai.com/v1`
-**Auth:** `Authorization: Bearer sk-...`
+**Python SDK:** `pip install openai`
 
-#### Endpoints
+```python
+# app/clients/openai_client.py
+from openai import AsyncOpenAI
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/v1/chat/completions` | POST | Code analysis, chain reasoning, fix doc generation |
-| `/v1/responses` | POST | Alternative unified endpoint |
-| `/v1/embeddings` | POST | Stretch — semantic code similarity |
+openai_client = AsyncOpenAI()  # reads OPENAI_API_KEY from env
 
-#### Structured Outputs (Primary Pattern)
-
-```typescript
-const response = await openai.chat.completions.create({
-  model: 'gpt-4o',
-  messages: [
-    { role: 'system', content: agentSystemPrompt },
-    { role: 'user', content: analysisPrompt }
-  ],
-  response_format: {
-    type: 'json_schema',
-    json_schema: {
-      name: 'code_findings',
-      schema: {
-        type: 'object',
-        properties: {
-          findings: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                type: { type: 'string', enum: ['bug', 'smell', 'complexity', 'dead_code'] },
-                severity: { type: 'string', enum: ['critical', 'warning', 'info'] },
-                title: { type: 'string' },
-                description: { type: 'string' },
-                plainDescription: { type: 'string' },
-                startLine: { type: 'integer' },
-                endLine: { type: 'integer' },
-                confidence: { type: 'number' }
-              },
-              required: ['type', 'severity', 'title', 'description', 'startLine', 'endLine']
-            }
-          }
-        },
-        required: ['findings']
-      }
-    }
-  }
-});
+async def reason_structured(system: str, user: str, schema: dict) -> dict:
+    response = await openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        response_format={"type": "json_schema", "json_schema": schema},
+    )
+    return json.loads(response.choices[0].message.content)
 ```
 
-#### Tool Calling (Security Agent)
-
-```typescript
-const tools = [
-  {
-    type: 'function',
-    function: {
-      name: 'search_cve',
-      description: 'Search for CVE vulnerabilities for a package',
-      parameters: {
-        type: 'object',
-        properties: {
-          package_name: { type: 'string' },
-          version: { type: 'string' }
-        },
-        required: ['package_name', 'version']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'query_graph',
-      description: 'Query the Neo4j knowledge graph with Cypher',
-      parameters: {
-        type: 'object',
-        properties: { cypher_query: { type: 'string' } },
-        required: ['cypher_query']
-      }
-    }
-  }
-];
-```
-
-#### Models
-
-| Model | Usage | Why |
-|-------|-------|-----|
-| `gpt-4o` | Quality, Pattern, Security agents | Best structured output + code reasoning |
-| `gpt-4o-mini` | Mapper fallback, simple classification | Fast, cheap |
-| `o3-mini` | Stretch — chain analysis | Advanced reasoning |
-
-#### Expected Usage Per Scan
-
-~15-30 calls, ~40-60K tokens total (only for tasks Fastino can't handle)
+**Models:** `gpt-4o` (primary reasoning), `gpt-4o-mini` (fallback/simple), `o3-mini` (stretch — chain analysis)
+**Expected:** ~15-30 calls/scan, ~40-60K tokens
 
 ---
 
 ### 5.3 TAVILY — CVE Search & Content Extraction
 
-**Role:** Fast, targeted web search for CVEs and vulnerability data. Complements Fastino entity extraction.
+**Python SDK:** `pip install tavily-python`
 
-**Base URL:** `https://api.tavily.com`
-**Auth:** `Authorization: Bearer tvly-YOUR_KEY`
-**SDK:** `pip install tavily-python` / `npm install tavily`
+```python
+# app/clients/tavily_client.py
+from tavily import AsyncTavilyClient
 
-#### Endpoints
+tavily_client = AsyncTavilyClient(api_key=settings.tavily_api_key)
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/search` | POST | CVE lookup per dependency, migration guide search |
-| `/extract` | POST | Deep data extraction from NVD/Advisory pages |
-| `/crawl` | POST | Stretch — crawl documentation sites |
-| `/map` | POST | Stretch — discover vulnerability pages |
+async def search_cves(query: str) -> dict:
+    return await tavily_client.search(
+        query=query,
+        search_depth="advanced",
+        include_answer=True,
+        max_results=5,
+        include_domains=["nvd.nist.gov", "github.com/advisories", "security.snyk.io"],
+    )
 
-#### `/search` — CVE Lookup
-
-```json
-POST https://api.tavily.com/search
-{
-  "query": "\"express\" \"4.17.1\" CVE vulnerability security advisory",
-  "search_depth": "advanced",
-  "include_answer": true,
-  "max_results": 5,
-  "include_domains": ["nvd.nist.gov", "github.com/advisories", "security.snyk.io"],
-  "days": 365
-}
-
-// Response:
-{
-  "answer": "Express 4.17.1 has CVE-2024-29041...",
-  "results": [
-    { "title": "CVE-2024-29041", "url": "https://nvd.nist.gov/...", "content": "...", "score": 0.95 }
-  ],
-  "response_time": 1.2
-}
+async def extract_advisory(urls: list[str]) -> dict:
+    return await tavily_client.extract(urls=urls, extract_depth="advanced")
 ```
 
-#### `/extract` — Deep CVE Data
-
-```json
-POST https://api.tavily.com/extract
-{
-  "urls": ["https://nvd.nist.gov/vuln/detail/CVE-2024-29041"],
-  "query": "CVSS score affected versions fix version exploit available",
-  "chunks_per_source": 3,
-  "extract_depth": "advanced",
-  "format": "markdown"
-}
-```
-
-#### Usage Per Scan
-
-1 search per dependency batch (3-5 deps per search) + 1-2 extracts per CVE found = ~10-20 calls
+**Endpoints:** `/search` (CVE lookup), `/extract` (advisory deep extraction)
+**Expected:** ~10-20 calls/scan
 
 ---
 
 ### 5.4 NEO4J — Codebase Knowledge Graph
 
-**Role:** ESSENTIAL — the entire codebase knowledge graph. Every file, function, import, dependency, finding, and vulnerability chain lives here.
+**Python SDK:** `pip install neo4j`
 
-**Connection:** `neo4j+s://xxxx.databases.neo4j.io:7687` (AuraDB Free) or `neo4j://localhost:7687` (Desktop)
-**Auth:** Basic (username: neo4j, password: from instance)
-**SDK:** `npm install neo4j-driver`
+```python
+# app/clients/neo4j_client.py
+from neo4j import AsyncGraphDatabase
 
-#### Key Operations
+class Neo4jClient:
+    def __init__(self):
+        self._driver = AsyncGraphDatabase.driver(
+            settings.neo4j_uri,
+            auth=(settings.neo4j_username, settings.neo4j_password),
+        )
 
-```typescript
-import neo4j from 'neo4j-driver';
+    async def merge_file(self, file_data: dict):
+        async with self._driver.session() as session:
+            await session.run(
+                """MERGE (f:File {path: $path})
+                   SET f.language = $language, f.lines = $lines,
+                       f.category = $category, f.name = $name""",
+                **file_data,
+            )
 
-const driver = neo4j.driver(
-  process.env.NEO4J_URI,
-  neo4j.auth.basic('neo4j', process.env.NEO4J_PASSWORD)
-);
+    async def get_blast_radius(self, file_path: str, max_hops: int = 3) -> list:
+        async with self._driver.session() as session:
+            result = await session.run(
+                f"""MATCH (start:File {{path: $path}})
+                    MATCH (start)-[*1..{max_hops}]->(affected)
+                    RETURN DISTINCT labels(affected) as type,
+                           affected.path as path, affected.name as name""",
+                path=file_path,
+            )
+            return [record.data() async for record in result]
 
-// MERGE pattern (upsert — idempotent, safe for re-runs)
-async function addFile(path: string, language: string, lines: number, category: string) {
-  const session = driver.session();
-  await session.run(
-    `MERGE (f:File {path: $path})
-     SET f.language = $language, f.lines = $lines, f.category = $category`,
-    { path, language, lines, category }
-  );
-  session.close();
-}
+    async def find_vulnerability_chains(self) -> list:
+        async with self._driver.session() as session:
+            result = await session.run(
+                """MATCH path = (entry:Endpoint)-[:HANDLED_BY]->(:Function)
+                   -[:CALLS*1..4]->(:Function)-[:DEFINED_IN]->(:File)
+                   -[:DEPENDS_ON]->(:Package {hasVulnerability: true})
+                   RETURN path"""
+            )
+            return [record.data() async for record in result]
 
-// Blast radius query
-async function getBlastRadius(filePath: string, maxHops = 3) {
-  const session = driver.session();
-  const result = await session.run(
-    `MATCH (start:File {path: $path})
-     MATCH (start)-[*1..${maxHops}]->(affected)
-     RETURN DISTINCT labels(affected) as type, affected.path as path, affected.name as name`,
-    { path: filePath }
-  );
-  session.close();
-  return result.records;
-}
-
-// Vulnerability chain discovery
-async function findVulnerabilityChains() {
-  const session = driver.session();
-  const result = await session.run(
-    `MATCH path = (entry:Endpoint)-[:HANDLED_BY]->(:Function)
-     -[:CALLS*1..4]->(:Function)-[:DEFINED_IN]->(:File)
-     -[:DEPENDS_ON]->(:Package {hasVulnerability: true})
-     RETURN path`
-  );
-  session.close();
-  return result.records;
-}
+    async def close(self):
+        await self._driver.close()
 ```
 
 Full schema defined in Section 6 below.
@@ -775,95 +1059,99 @@ Full schema defined in Section 6 below.
 
 ### 5.5 SENSO CONTEXT OS — Persistent Knowledge Layer
 
-**Role:** ESSENTIAL — transforms VIBE CHECK from "scan and forget" into a learning intelligence system.
-
 **Base URL:** `https://sdk.senso.ai/api/v1`
-**Auth:** `X-API-Key: YOUR_SENSO_KEY`
+**Python Client:** `httpx` async client (no official SDK)
+
+```python
+# app/clients/senso_client.py
+import httpx
+from app.core.config import settings
+
+class SensoClient:
+    BASE_URL = "https://sdk.senso.ai/api/v1"
+
+    def __init__(self):
+        self._client = httpx.AsyncClient(
+            base_url=self.BASE_URL,
+            headers={
+                "X-API-Key": settings.senso_api_key,
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+
+    async def create_categories_batch(self, categories: list[dict]) -> dict:
+        resp = await self._client.post("/categories/batch", json=categories)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def ingest_content(self, title: str, summary: str, text: str,
+                             category_id: str, topic_id: str) -> str:
+        resp = await self._client.post("/content/raw", json={
+            "title": title, "summary": summary, "text": text,
+            "category_id": category_id, "topic_id": topic_id,
+        })
+        resp.raise_for_status()
+        content_id = resp.json()["id"]
+        await self._poll_processing(content_id)
+        return content_id
+
+    async def search(self, query: str, max_results: int = 5) -> dict:
+        resp = await self._client.post("/search", json={
+            "query": query, "max_results": max_results,
+        })
+        resp.raise_for_status()
+        return resp.json()
+
+    async def generate(self, prompt_id: str = None, instructions: str = None,
+                       content_type: str = None, save: bool = False) -> dict:
+        body = {"save": save}
+        if prompt_id:
+            resp = await self._client.post("/generate/prompt", json={
+                "prompt_id": prompt_id, "content_type": content_type, **body,
+            })
+        else:
+            resp = await self._client.post("/generate", json={
+                "instructions": instructions, **body,
+            })
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _poll_processing(self, content_id: str, max_wait: int = 30):
+        import asyncio
+        for _ in range(max_wait):
+            resp = await self._client.get(f"/content/{content_id}")
+            if resp.json().get("processing_status") == "completed":
+                return
+            await asyncio.sleep(1)
+
+    async def close(self):
+        await self._client.aclose()
+```
 
 #### Complete Endpoint Reference
 
 | Endpoint | Method | When | Purpose |
 |----------|--------|------|---------|
-| `/categories` | POST | App init | Create taxonomy categories |
-| `/categories/batch` | POST | App init | Batch create categories + topics |
-| `/topics` | POST | App init | Create nested topics under categories |
+| `/categories/batch` | POST | App init | Batch create 5 categories + 14 topics |
 | `/prompts` | POST | App init | Create 4 reusable analysis prompts |
-| `/prompts` | GET | On demand | List available prompts |
 | `/templates` | POST | App init | Create 2 output templates |
-| `/content/raw` | POST | Per finding/fix/profile | **PRIMARY** — Ingest content to knowledge base |
-| `/content/{id}` | GET | After ingest | Poll processing status (202 → completed) |
+| `/content/raw` | POST | Per finding/fix/profile | **PRIMARY** — Ingest to knowledge base |
+| `/content/{id}` | GET | After ingest | Poll processing status |
 | `/content` | GET | Dashboard | List all knowledge base content |
-| `/search` | POST | Pre-scan + dashboard | **PRIMARY** — Natural language search, cited answers |
-| `/generate` | POST | Post-scan | Generate summaries from knowledge base |
-| `/generate/prompt` | POST | Post-scan | Prompt-driven content generation with templates |
-| `/rules` | POST | Setup (stretch) | Create classification rules |
-| `/rules/{id}/values` | POST | Setup (stretch) | Add rule values |
-| `/webhooks` | POST | Setup (stretch) | Register alert destinations |
-| `/triggers` | POST | Setup (stretch) | Link rules to webhooks for automation |
-
-#### Content Ingestion Pattern
-
-```typescript
-const SENSO_API = 'https://sdk.senso.ai/api/v1';
-const headers = { 'X-API-Key': process.env.SENSO_API_KEY, 'Content-Type': 'application/json' };
-
-// Ingest a finding
-const response = await fetch(`${SENSO_API}/content/raw`, {
-  method: 'POST', headers,
-  body: JSON.stringify({
-    title: `CVE-2024-29041: Express 4.17.1 Path Traversal`,
-    summary: `Critical path traversal in Express 4.17.1 affecting 8 files in user/repo`,
-    text: fullFindingMarkdown,    // Detailed finding with blast radius, affected files, fix steps
-    category_id: categoryIds.securityVulnerabilities,
-    topic_id: topicIds.dependencyCVEs
-  })
-});
-// Returns 202 with { id: 'content_id' }
-
-// Poll for completion
-let status = 'processing';
-while (status !== 'completed') {
-  const check = await fetch(`${SENSO_API}/content/${contentId}`, { headers });
-  const data = await check.json();
-  status = data.processing_status;
-  if (status === 'failed') throw new Error('Senso processing failed');
-  await sleep(1000);
-}
-```
-
-#### Search Pattern
-
-```typescript
-const searchResult = await fetch(`${SENSO_API}/search`, {
-  method: 'POST', headers,
-  body: JSON.stringify({
-    query: 'Express path traversal vulnerability fix documentation',
-    max_results: 5
-  })
-});
-// Returns: { answer: '...', sources: [...], processing_time_ms: 234, total_results: 5 }
-```
-
-Full Senso content architecture in Section 8 below.
+| `/search` | POST | Pre-scan + dashboard | **PRIMARY** — NL search, cited answers |
+| `/generate` | POST | Post-scan | Generate summaries |
+| `/generate/prompt` | POST | Post-scan | Prompt-driven content generation |
+| `/rules` | POST | Setup (stretch) | Classification rules |
+| `/webhooks` | POST | Setup (stretch) | Alert destinations |
+| `/triggers` | POST | Setup (stretch) | Link rules to webhooks |
 
 ---
 
 ### 5.6 YUTORI — Deep Web Intelligence (STRETCH)
 
-**Role:** STRETCH goal — deep multi-agent web research for complex CVE investigations and continuous monitoring.
-
 **Base URL:** `https://api.yutori.com`
-**Auth:** `x-api-key: YOUR_YUTORI_KEY`
-**SDK:** `pip install yutori`
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/research` | POST | Deep CVE research with 100+ MCP tools |
-| `/research/{task_id}` | GET | Poll research results |
-| `/browse` | POST | Navigate interactive advisory pages |
-| `/browse/{task_id}` | GET | Get browsing results |
-| `/scouts` | POST | Create continuous vulnerability monitoring |
-| `/scouts/{id}/updates` | GET | Get monitoring updates |
+**Python SDK:** `pip install yutori`
 
 Only used if Tavily results are insufficient for complex CVE chains.
 
@@ -871,16 +1159,12 @@ Only used if Tavily results are insufficient for complex CVE chains.
 
 ### 5.7 AWS — Production Infrastructure (OPTIONAL)
 
-**Role:** OPTIONAL stretch for production deployment. Not needed for demo.
-
 | Service | Purpose | Local Alternative |
 |---------|---------|-------------------|
-| Lambda | Agent execution | In-process functions |
+| Lambda | Agent execution (via Mangum) | In-process asyncio |
 | S3 | Repo storage | Local `/tmp` |
 | DynamoDB | Analysis state | SQLite |
-| API Gateway | REST API | Next.js API routes |
-| EventBridge | Agent orchestration | In-process events |
-| Bedrock | Alternative LLM | OpenAI API direct |
+| API Gateway | REST API | FastAPI/uvicorn |
 
 ---
 
@@ -889,7 +1173,6 @@ Only used if Tavily results are insufficient for complex CVE chains.
 ### Node Types
 
 ```cypher
-// Codebase Structure
 (:Repository {url, name, owner, branch, clonedAt, healthScore, letterGrade})
 (:Directory {path, depth, fileCount})
 (:File {path, name, extension, language, lines, size, category,
@@ -899,31 +1182,22 @@ Only used if Tavily results are insufficient for complex CVE chains.
             accessesSensitiveData: boolean, hasVulnerability: boolean})
 (:Class {name, filePath, startLine, endLine, methodCount, exported: boolean})
 (:Endpoint {method, routePath, handler, hasAuth: boolean, hasValidation: boolean})
-
-// Dependencies
 (:Package {name, version, versionConstraint, isDev: boolean,
            isTransitive: boolean, hasVulnerability: boolean,
            latestVersion, cveCount: int})
-
-// Findings
 (:Finding {id, type, severity, title, description, plainDescription,
            location, startLine, endLine, blastRadius: int,
            agent, confidence: float, sensoContentId})
 (:VulnerabilityChain {id, description, steps: int, severity, entryPoint, exitPoint})
 (:CVE {id, cvssScore: float, description, fixedVersion, exploitAvailable: boolean})
-
-// Fixes
 (:Fix {id, title, priority: int, estimatedEffort, description,
        beforeCode, afterCode, sensoContentId})
-
-// Senso References
 (:SensoContent {id, sensoId, title, categoryId, topicId, processingStatus})
 ```
 
 ### Relationships
 
 ```cypher
-// Structure
 (repo)-[:CONTAINS]->(dir)
 (dir)-[:CONTAINS]->(file|dir)
 (file)-[:IMPORTS]->(file)
@@ -933,12 +1207,6 @@ Only used if Tavily results are insufficient for complex CVE chains.
 (function)-[:CALLS]->(function)
 (class)-[:DEFINED_IN]->(file)
 (endpoint)-[:HANDLED_BY]->(function)
-
-// Data Flow
-(function)-[:RECEIVES_INPUT {source: "user"|"api"|"db"|"env"}]->(dataflow)
-(function)-[:WRITES_TO {target: "db"|"file"|"api"|"response"}]->(dataflow)
-
-// Findings & Fixes
 (finding)-[:AFFECTS]->(file|function|endpoint|package)
 (finding)-[:PART_OF_CHAIN]->(vulnerabilityChain)
 (cve)-[:IN_PACKAGE]->(package)
@@ -946,8 +1214,6 @@ Only used if Tavily results are insufficient for complex CVE chains.
 (fix)-[:RESOLVES]->(finding)
 (fix)-[:MODIFIES]->(file)
 (fix)-[:UPGRADES]->(package)
-
-// Senso Cross-References
 (finding)-[:PERSISTED_IN]->(sensoContent)
 (fix)-[:PERSISTED_IN]->(sensoContent)
 (repo)-[:PROFILED_IN]->(sensoContent)
@@ -957,55 +1223,79 @@ Only used if Tavily results are insufficient for complex CVE chains.
 
 ## 7. DATABASE & STATE SCHEMAS
 
-### Analysis Record (SQLite)
+### Analysis Record (SQLite via aiosqlite)
 
-```sql
-CREATE TABLE analyses (
-  analysis_id TEXT PRIMARY KEY,        -- "anl_" + uuid
-  repo_url TEXT NOT NULL,
-  repo_name TEXT NOT NULL,             -- "owner/name"
-  branch TEXT DEFAULT 'main',
-  clone_dir TEXT,
-  detected_stack JSON,                 -- {languages, frameworks, packageManager, buildSystem}
-  stats JSON,                          -- {totalFiles, totalLines, totalDependencies...}
-  status TEXT DEFAULT 'queued',        -- queued|cloning|mapping|analyzing|completed|failed
-  agent_statuses JSON,                 -- {mapper: {status, progress, findingsCount}...}
-  health_score JSON,                   -- {overall, letterGrade, breakdown, confidence}
-  findings_summary JSON,               -- {critical, warning, info, total}
-  senso_content_ids JSON DEFAULT '[]',
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
-  completed_at TEXT,
-  duration_seconds INTEGER
+```python
+# app/db/schema.py
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS analyses (
+    analysis_id TEXT PRIMARY KEY,
+    repo_url TEXT NOT NULL,
+    repo_name TEXT NOT NULL,
+    branch TEXT DEFAULT 'main',
+    clone_dir TEXT,
+    detected_stack TEXT,             -- JSON string
+    stats TEXT,                      -- JSON string
+    status TEXT DEFAULT 'queued',
+    agent_statuses TEXT,             -- JSON string
+    health_score TEXT,               -- JSON string
+    findings_summary TEXT,           -- JSON string
+    senso_content_ids TEXT DEFAULT '[]',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT,
+    duration_seconds INTEGER
 );
+"""
 ```
 
-### Senso Content Schema
+```python
+# app/db/repository.py
+import aiosqlite
+import json
+from app.core.config import settings
 
-```typescript
-interface SensoFindingContent {
-  title: string;                // "CVE-2024-29041: Express 4.17.1 Path Traversal"
-  summary: string;              // One-line summary
-  text: string;                 // Full structured finding markdown
-  category_id: string;
-  topic_id: string;
-}
+DB_PATH = "vibe_check.db"
 
-interface SensoFixContent {
-  title: string;                // "FIX: Upgrade Express 4.17.1 → 4.21.0"
-  summary: string;
-  text: string;                 // Full fix documentation markdown
-  category_id: string;
-  topic_id: string;
-}
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.executescript(SCHEMA)
 
-interface SensoRepoProfile {
-  title: string;                // "Repo Profile: user/repo (2026-02-27)"
-  summary: string;              // "Next.js app, 47 files, Health Score: B- (73/100)"
-  text: string;                 // Full repo analysis summary
-  category_id: string;
-  topic_id: string;
-}
+async def create_analysis(analysis_id: str, repo_url: str, repo_name: str, branch: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO analyses (analysis_id, repo_url, repo_name, branch) VALUES (?, ?, ?, ?)",
+            (analysis_id, repo_url, repo_name, branch),
+        )
+        await db.commit()
+
+async def update_status(analysis_id: str, status: str, **kwargs):
+    async with aiosqlite.connect(DB_PATH) as db:
+        sets = ["status = ?", "updated_at = datetime('now')"]
+        params = [status]
+        for key, val in kwargs.items():
+            sets.append(f"{key} = ?")
+            params.append(json.dumps(val) if isinstance(val, (dict, list)) else val)
+        params.append(analysis_id)
+        await db.execute(
+            f"UPDATE analyses SET {', '.join(sets)} WHERE analysis_id = ?", params
+        )
+        await db.commit()
+
+async def get_analysis(analysis_id: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM analyses WHERE analysis_id = ?", (analysis_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        # Parse JSON fields
+        for field in ["detected_stack", "stats", "agent_statuses", "health_score",
+                      "findings_summary", "senso_content_ids"]:
+            if result.get(field):
+                result[field] = json.loads(result[field])
+        return result
 ```
 
 ---
@@ -1022,36 +1312,43 @@ interface SensoRepoProfile {
 | Fix Documentation | Dependency Upgrades, Security Patches, Refactoring Guides |
 | Repository Profiles | Health Scores, Tech Stack Analysis |
 
-### Pre-Created Prompts (4)
+### Initialization (app startup)
 
-1. **Security Audit Summary** — Generate concise security audit with severity counts, chains, top fixes
-2. **Fix Documentation Generator** — Generate fix docs with plain language, code examples, effort estimates
-3. **Cross-Repo Pattern Analyzer** — Identify recurring patterns across all scanned repos
-4. **Executive Health Report** — One-page non-technical summary
+```python
+# app/services/senso_init.py
+async def init_senso_taxonomy(senso: SensoClient) -> dict:
+    """Create all categories, topics, prompts, templates on app startup."""
+    result = await senso.create_categories_batch(TAXONOMY_PAYLOAD)
 
-### Pre-Created Templates (2)
+    prompts = {}
+    for prompt_data in PROMPTS:
+        resp = await senso._client.post("/prompts", json=prompt_data)
+        prompts[prompt_data["name"]] = resp.json()["id"]
 
-1. **Vulnerability Report** — Markdown report with findings, chains, fix plan
-2. **Fix Plan JSON** — Machine-readable fix plan
+    templates = {}
+    for template_data in TEMPLATES:
+        resp = await senso._client.post("/templates", json=template_data)
+        templates[template_data["name"]] = resp.json()["id"]
+
+    return {"categories": result, "prompts": prompts, "templates": templates}
+```
 
 ### Processing Flows
 
 ```
-APP INIT:
-  POST /categories/batch → create 5 categories + 14 topics → store IDs
-  POST /prompts (×4) → store prompt IDs
-  POST /templates (×2) → store template IDs
+APP STARTUP (lifespan):
+  init_db() → create SQLite tables
+  init_senso_taxonomy() → POST /categories/batch, /prompts, /templates → store IDs
 
 PRE-SCAN:
-  POST /search { query: "vulnerabilities in [framework]" } → historical intel
-  POST /search { query: "fix docs for [dependencies]" } → previous fixes
+  POST /search { "vulnerabilities in [framework]" } → historical intel
   → Feed to Doctor Agent
 
 POST-SCAN:
-  For each finding: POST /content/raw → poll GET /content/{id}
-  For each fix: POST /content/raw
-  Repo profile: POST /content/raw
-  POST /generate/prompt { cross_repo_analyzer } → cross-repo intelligence
+  For each finding: POST /content/raw → poll → content_id
+  For each fix: POST /content/raw → content_id
+  Repo profile: POST /content/raw → content_id
+  POST /generate/prompt { cross_repo_analyzer }
 
 DASHBOARD QUERIES:
   POST /search { user_query } → cited answers
@@ -1066,6 +1363,9 @@ DASHBOARD QUERIES:
 USER INPUT: "https://github.com/user/repo"
   │
   ▼
+POST /api/v1/analyze → 202 Accepted → analysis_id
+  │
+  ▼ (background task via asyncio)
 ORCHESTRATOR (0:00)
   ├── git clone → /tmp/vibe-check/repos/anl_abc123/
   ├── Detect stack: Fastino classify_text → "Next.js + TypeScript"
@@ -1081,7 +1381,7 @@ MAPPER AGENT (0:05-0:15)
   ├── Fastino extract_json → Function/Class nodes
   └── All → Neo4j MERGE
   │
-  ▼ (parallel)
+  ▼ (asyncio.TaskGroup — parallel)
 QUALITY AGENT (0:15-0:25)          PATTERN AGENT (0:15-0:25)          SECURITY AGENT (0:15-0:30)
 ├── Fastino classify per block     ├── Fastino classify structure     ├── Tavily search per dep batch
 ├── OpenAI deep analysis on flags  ├── OpenAI score best practices   ├── Fastino extract CVE entities
@@ -1116,14 +1416,182 @@ HEALTH SCORE COMPUTATION (0:45)
 
 | Time | Backend Focus | Sponsor Integration |
 |------|--------------|-------------------|
-| 0:00-0:30 | Next.js API skeleton, Neo4j driver, Fastino client, Senso client | Senso taxonomy batch-created |
-| 0:30-1:15 | Mapper Agent: git clone, file walk, Fastino classify/extract, Neo4j graph | Fastino GLiNER-2 entity extraction |
-| 1:15-1:45 | WebSocket streaming, analysis state management | — |
-| 1:45-2:30 | Quality + Pattern agents: Fastino classify → OpenAI deep analysis | Fastino classification + OpenAI reasoning |
-| 2:30-3:15 | Security Agent: Tavily search/extract → Fastino CVE parsing → OpenAI chains | Tavily + Fastino + OpenAI + Neo4j |
-| 3:15-4:00 | Doctor Agent + Senso Intelligence | Senso search/generate + OpenAI doc gen |
-| 4:00-4:30 | Senso Knowledge Agent: post-scan ingestion, pre-scan intel | Full Senso integration |
-| 4:30-5:00 | Polish: error handling, caching demo results, timeout guards | — |
+| 0:00-0:30 | **FastAPI scaffold**: uvicorn, CORS, routes, WebSocket endpoint, Pydantic models, SQLite init, all clients instantiated | Senso taxonomy batch-created |
+| 0:30-1:15 | **Mapper Agent**: git clone, file walk, Fastino classify/extract, Neo4j graph build, WS streaming | Fastino GLiNER-2 entity extraction |
+| 1:15-1:45 | **WebSocket broadcaster**: message routing, agent status tracking, graph node/edge streaming | — |
+| 1:45-2:30 | **Quality + Pattern agents**: Fastino classify → OpenAI deep analysis, findings to Neo4j | Fastino classification + OpenAI reasoning |
+| 2:30-3:15 | **Security Agent**: Tavily search/extract → Fastino CVE parsing → OpenAI chains | Tavily + Fastino + OpenAI + Neo4j |
+| 3:15-4:00 | **Doctor Agent + Senso Intelligence**: fix doc gen, historical fix search | Senso search/generate + OpenAI |
+| 4:00-4:30 | **Senso Knowledge Agent**: post-scan ingestion, pre-scan intel | Full Senso integration |
+| 4:30-5:00 | **Polish**: error handling, demo repo caching, timeout guards, health score algo | — |
+
+---
+
+## 11. PYTHON PROJECT STRUCTURE
+
+```
+vibe-check-backend/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                          # FastAPI app, lifespan, CORS, include routers
+│   │
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── config.py                    # Pydantic Settings (env vars)
+│   │   └── lifespan.py                  # App startup/shutdown (init DB, clients, Senso taxonomy)
+│   │
+│   ├── models/                          # Pydantic models (request/response/domain)
+│   │   ├── __init__.py
+│   │   ├── analysis.py                  # AnalyzeRequest, AnalysisResult, AnalysisContext
+│   │   ├── findings.py                  # Finding, FindingLocation, BlastRadius, CVEInfo
+│   │   ├── fixes.py                     # Fix, FixDocumentation, FixSummary
+│   │   ├── graph.py                     # GraphNode, GraphEdge, GraphResponse
+│   │   ├── chains.py                    # VulnerabilityChain, ChainStep
+│   │   ├── health.py                    # HealthScore, CategoryScore
+│   │   ├── senso.py                     # SensoSearchResult, SensoInsight, SensoGenerateResult
+│   │   └── ws.py                        # WSMessage union, all WS message types
+│   │
+│   ├── api/                             # FastAPI routers
+│   │   ├── __init__.py
+│   │   ├── analyze.py                   # POST /analyze
+│   │   ├── analysis.py                  # GET /analysis/:id, /findings, /chains, /fixes, /graph
+│   │   ├── senso.py                     # POST /analysis/:id/senso/search, /senso/generate
+│   │   └── ws.py                        # WebSocket /ws/analysis/:id
+│   │
+│   ├── agents/                          # Agent implementations
+│   │   ├── __init__.py
+│   │   ├── base.py                      # BaseAgent ABC
+│   │   ├── orchestrator.py              # Clone, dispatch, score
+│   │   ├── mapper.py                    # File walk, Fastino classify/extract, Neo4j graph
+│   │   ├── quality.py                   # Fastino classify → OpenAI deep analysis
+│   │   ├── pattern.py                   # Fastino classify → OpenAI scoring
+│   │   ├── security.py                  # Tavily → Fastino → OpenAI chains
+│   │   ├── doctor.py                    # Senso search + OpenAI fix gen
+│   │   └── senso_knowledge.py           # Senso ingest, search, generate
+│   │
+│   ├── clients/                         # External API clients (async)
+│   │   ├── __init__.py
+│   │   ├── fastino.py                   # Fastino TLM + GLiNER-2 client
+│   │   ├── openai_client.py             # OpenAI async wrapper
+│   │   ├── tavily_client.py             # Tavily search + extract
+│   │   ├── neo4j_client.py              # Neo4j async driver wrapper
+│   │   └── senso_client.py              # Senso Context OS httpx client
+│   │
+│   ├── ws/                              # WebSocket management
+│   │   ├── __init__.py
+│   │   ├── broadcaster.py               # WebSocketBroadcaster (send_status, send_finding, etc.)
+│   │   └── manager.py                   # Connection manager (multi-client per analysis)
+│   │
+│   ├── scoring/                         # Health score computation
+│   │   ├── __init__.py
+│   │   └── health.py                    # compute_health_score(), score_to_grade()
+│   │
+│   ├── db/                              # SQLite persistence
+│   │   ├── __init__.py
+│   │   ├── schema.py                    # CREATE TABLE SQL
+│   │   └── repository.py                # CRUD functions (async)
+│   │
+│   ├── services/                        # Business logic / orchestration
+│   │   ├── __init__.py
+│   │   ├── senso_init.py                # Taxonomy, prompts, templates init
+│   │   └── demo.py                      # Demo repo detection + cached replay
+│   │
+│   └── prompts/                         # LLM system prompts (text files)
+│       ├── quality_system.txt
+│       ├── pattern_system.txt
+│       ├── security_chain.txt
+│       └── fix_doc_system.txt
+│
+├── requirements.txt                     # Python dependencies
+├── .env                                 # Environment variables
+├── .env.example
+└── README.md
+```
+
+### requirements.txt
+
+```
+# Web Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# Async
+httpx>=0.27.0
+aiosqlite>=0.20.0
+
+# AI / LLM
+openai>=1.50.0
+tavily-python>=0.5.0
+gliner2>=0.1.0
+
+# Graph
+neo4j>=5.20.0
+
+# Code Parsing
+tree-sitter>=0.22.0
+
+# Utilities
+python-dotenv>=1.0.0
+```
+
+### FastAPI Entry Point
+
+```python
+# app/main.py
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
+from app.core.lifespan import lifespan
+from app.api import analyze, analysis, senso, ws
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    from app.db.repository import init_db
+    from app.clients.fastino import FastinoClient
+    from app.clients.neo4j_client import Neo4jClient
+    from app.clients.senso_client import SensoClient
+    from app.services.senso_init import init_senso_taxonomy
+
+    await init_db()
+    app.state.fastino = FastinoClient()
+    app.state.neo4j = Neo4jClient()
+    app.state.senso = SensoClient()
+    app.state.senso_ids = await init_senso_taxonomy(app.state.senso)
+
+    yield
+
+    # Shutdown
+    await app.state.fastino.close()
+    await app.state.neo4j.close()
+    await app.state.senso.close()
+
+app = FastAPI(
+    title="VIBE CHECK API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(analyze.router, prefix="/api/v1")
+app.include_router(analysis.router, prefix="/api/v1")
+app.include_router(senso.router, prefix="/api/v1")
+app.include_router(ws.router)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host=settings.host, port=settings.port, reload=True)
+```
 
 ---
 
@@ -1131,13 +1599,13 @@ HEALTH SCORE COMPUTATION (0:45)
 
 | Sponsor | Depth | Role |
 |---------|-------|------|
-| **Fastino** | ESSENTIAL | Primary demo inferencing — TLMs + GLiNER-2 for entity extraction, classification, structured parsing. 99x faster. The speed story. |
-| **OpenAI** | ESSENTIAL | Backup reasoning — complex code analysis, vulnerability chains, documentation generation. The depth story. |
-| **Neo4j** | ESSENTIAL | Codebase knowledge graph — the entire product IS the graph. |
-| **Senso** | ESSENTIAL | Persistent knowledge — cross-repo intelligence, search, generate. The learning story. |
-| **Tavily** | ESSENTIAL | CVE web search + advisory page extraction. The security data source. |
-| **Yutori** | STRETCH | Deep web research + continuous monitoring (if time permits). |
-| **AWS** | OPTIONAL | Production deployment (not needed for demo). |
+| **Fastino** | ESSENTIAL | Primary demo inferencing — TLMs + GLiNER-2 via Python SDK. 99x faster. The speed story. |
+| **OpenAI** | ESSENTIAL | Backup reasoning — async Python SDK. Complex code analysis, chains, docs. The depth story. |
+| **Neo4j** | ESSENTIAL | Codebase knowledge graph — async Python driver. The product IS the graph. |
+| **Senso** | ESSENTIAL | Persistent knowledge — httpx async client. Cross-repo intelligence. The learning story. |
+| **Tavily** | ESSENTIAL | CVE web search — tavily-python async client. The security data source. |
+| **Yutori** | STRETCH | Deep web research + continuous monitoring. |
+| **AWS** | OPTIONAL | Production deployment via Mangum (Lambda adapter for FastAPI). |
 
 ---
 

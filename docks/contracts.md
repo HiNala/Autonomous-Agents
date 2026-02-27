@@ -1,5 +1,5 @@
-# VIBE CHECK — API CONTRACTS PRD v3.0
-## Frontend ↔ Backend Interface Definitions
+# VIBE CHECK — API CONTRACTS PRD v4.0
+## Frontend (Next.js) ↔ Backend (FastAPI) Interface Definitions
 
 *Digital Studio Labs — February 27, 2026*
 
@@ -18,7 +18,7 @@
    - 2.7 POST /analysis/:id/senso/search
    - 2.8 POST /analysis/:id/senso/generate
 3. WebSocket Protocol
-4. Shared TypeScript Types
+4. Shared Types — TypeScript (Frontend) & Pydantic (Backend)
 5. Component ↔ Endpoint Mapping
 6. Error Handling Contract
 7. State Machine: Analysis Lifecycle
@@ -27,11 +27,45 @@
 
 ## 1. OVERVIEW & CONVENTIONS
 
+### Split Architecture
+
+```
+┌──────────────────────────┐     REST + WebSocket     ┌──────────────────────────┐
+│  NEXT.JS FRONTEND        │ ◄──────────────────────► │  FASTAPI BACKEND         │
+│  localhost:3000           │                          │  localhost:8000           │
+│  React, Cytoscape.js     │                          │  Python 3.12, asyncio    │
+│  Zustand, Framer Motion  │                          │  Pydantic, neo4j, httpx  │
+└──────────────────────────┘                          └──────────────────────────┘
+```
+
+The frontend and backend are **separate processes**. The Next.js frontend calls the FastAPI backend's REST and WebSocket endpoints.
+
 ### Base URL
 
 ```
-Development: http://localhost:3000/api/v1
-Production:  https://vibecheck.app/api/v1 (stretch)
+Backend API: http://localhost:8000/api/v1
+WebSocket:   ws://localhost:8000/ws/analysis/{analysisId}
+Frontend:    http://localhost:3000  (not relevant to contracts)
+```
+
+Production (stretch):
+```
+Backend API: https://api.vibecheck.app/api/v1
+WebSocket:   wss://api.vibecheck.app/ws/analysis/{analysisId}
+Frontend:    https://vibecheck.app
+```
+
+### CORS
+
+The FastAPI backend allows the Next.js origin:
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 ```
 
 ### Headers
@@ -47,7 +81,7 @@ All responses follow this pattern:
 - **Success:** Direct JSON payload (no wrapper)
 - **Error:** `{ "error": { "code": string, "message": string, "details"?: any } }`
 - **Pagination:** `{ "items": T[], "total": number, "limit": number, "offset": number }`
-- **Async:** 202 Accepted with `analysisId` for polling
+- **Async:** 202 Accepted with `analysisId` for polling/WebSocket
 
 ### ID Prefixes
 
@@ -58,6 +92,22 @@ All responses follow this pattern:
 | Fix | `fix_` | `fix_001` |
 | Chain | `chain_` | `chain_001` |
 | Senso Content | `cnt_` | `cnt_abc123` |
+
+### Frontend API Client Configuration
+
+The Next.js frontend should configure its API base URL:
+
+```typescript
+// lib/api.ts
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+```
+
+```env
+# .env.local (Next.js frontend)
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
+```
 
 ---
 
@@ -71,20 +121,52 @@ All responses follow this pattern:
 
 **Frontend caller:** `<AnalysisInput />` component on form submit
 
+#### FastAPI Route
+
+```python
+@router.post("/analyze", status_code=202, response_model=AnalyzeResponse)
+async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
+    analysis_id = f"anl_{uuid4().hex[:6]}"
+    await create_analysis(analysis_id, request.repo_url, request.repo_name, request.branch)
+    background_tasks.add_task(run_orchestrator, analysis_id, request)
+    return AnalyzeResponse(
+        analysisId=analysis_id,
+        status="queued",
+        repoName=extract_repo_name(request.repo_url),
+        estimatedDuration=45,
+        websocketUrl=f"/ws/analysis/{analysis_id}",
+    )
+```
+
 #### Request
 
 ```typescript
+// TypeScript (frontend)
 interface AnalyzeRequest {
-  repoUrl: string;                       // "https://github.com/user/repo"
-  branch?: string;                       // defaults to repo's default branch
-  scope?: 'full' | 'security-only' | 'quality-only';  // default: 'full'
-  maxFiles?: number;                     // default: 500, cap for large repos
-  useSensoIntelligence?: boolean;        // default: true
+  repoUrl: string;
+  branch?: string;
+  scope?: 'full' | 'security-only' | 'quality-only';
+  maxFiles?: number;
+  useSensoIntelligence?: boolean;
 }
 ```
 
+```python
+# Pydantic (backend)
+class AnalyzeRequest(BaseModel):
+    repo_url: str = Field(alias="repoUrl")
+    branch: str | None = None
+    scope: Literal["full", "security-only", "quality-only"] = "full"
+    max_files: int = Field(default=500, alias="maxFiles")
+    use_senso_intelligence: bool = Field(default=True, alias="useSensoIntelligence")
+
+    model_config = ConfigDict(populate_by_name=True)
+```
+
+#### Example
+
 ```json
-POST /api/v1/analyze
+POST http://localhost:8000/api/v1/analyze
 {
   "repoUrl": "https://github.com/user/repo",
   "branch": "main",
@@ -97,13 +179,26 @@ POST /api/v1/analyze
 #### Response — 202 Accepted
 
 ```typescript
+// TypeScript (frontend)
 interface AnalyzeResponse {
-  analysisId: string;                    // "anl_abc123"
+  analysisId: string;
   status: 'queued';
-  repoName: string;                      // "user/repo"
-  estimatedDuration: number;             // seconds
-  websocketUrl: string;                  // "/ws/analysis/anl_abc123"
+  repoName: string;
+  estimatedDuration: number;
+  websocketUrl: string;
 }
+```
+
+```python
+# Pydantic (backend)
+class AnalyzeResponse(BaseModel):
+    analysis_id: str = Field(alias="analysisId")
+    status: Literal["queued"] = "queued"
+    repo_name: str = Field(alias="repoName")
+    estimated_duration: int = Field(alias="estimatedDuration")
+    websocket_url: str = Field(alias="websocketUrl")
+
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
 ```
 
 ```json
@@ -128,29 +223,39 @@ interface AnalyzeResponse {
 
 ---
 
-### 2.2 `GET /analysis/:analysisId`
+### 2.2 `GET /analysis/{analysisId}`
 
 **Purpose:** Get full analysis status and results. Primary polling endpoint.
 
 **Frontend caller:** `<Dashboard />` initial load + `<AnalysisProgress />` polling fallback
 
+#### FastAPI Route
+
+```python
+@router.get("/analysis/{analysis_id}", response_model=AnalysisResult)
+async def get_analysis(analysis_id: str):
+    record = await get_analysis_record(analysis_id)
+    if not record:
+        raise HTTPException(404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Not found"})
+    return AnalysisResult(**record)
+```
+
 #### Response — 200 OK
 
 ```typescript
+// TypeScript (frontend)
 interface AnalysisResult {
   analysisId: string;
   status: AnalysisStatus;
   repoUrl: string;
   repoName: string;
   branch: string;
-
   detectedStack: {
     languages: string[];
     frameworks: string[];
     packageManager: string;
     buildSystem: string;
   };
-
   stats: {
     totalFiles: number;
     totalLines: number;
@@ -159,41 +264,72 @@ interface AnalysisResult {
     totalFunctions: number;
     totalEndpoints: number;
   };
-
-  healthScore: HealthScore | null;       // null while still analyzing
-
-  findings: {
-    critical: number;
-    warning: number;
-    info: number;
-    total: number;
-  };
-
+  healthScore: HealthScore | null;
+  findings: { critical: number; warning: number; info: number; total: number };
   vulnerabilityChains: number;
   fixesGenerated: number;
-
   sensoIntelligence: {
     crossRepoPatterns: number;
     previousFixesApplied: number;
     knowledgeBaseContributions: number;
   };
-
-  timestamps: {
-    startedAt: string;                   // ISO 8601
-    completedAt: string | null;
-    duration: number | null;             // seconds
-  };
+  timestamps: { startedAt: string; completedAt: string | null; duration: number | null };
 }
 
-type AnalysisStatus =
-  | 'queued'
-  | 'cloning'
-  | 'mapping'
-  | 'analyzing'
-  | 'completing'
-  | 'completed'
-  | 'failed';
+type AnalysisStatus = 'queued' | 'cloning' | 'mapping' | 'analyzing' | 'completing' | 'completed' | 'failed';
 ```
+
+```python
+# Pydantic (backend)
+class DetectedStack(BaseModel):
+    languages: list[str]
+    frameworks: list[str]
+    package_manager: str = Field(alias="packageManager")
+    build_system: str = Field(alias="buildSystem")
+
+class RepoStats(BaseModel):
+    total_files: int = Field(alias="totalFiles")
+    total_lines: int = Field(alias="totalLines")
+    total_dependencies: int = Field(alias="totalDependencies")
+    total_dev_dependencies: int = Field(alias="totalDevDependencies")
+    total_functions: int = Field(alias="totalFunctions")
+    total_endpoints: int = Field(alias="totalEndpoints")
+
+class FindingsSummary(BaseModel):
+    critical: int
+    warning: int
+    info: int
+    total: int
+
+class SensoIntelligenceSummary(BaseModel):
+    cross_repo_patterns: int = Field(alias="crossRepoPatterns")
+    previous_fixes_applied: int = Field(alias="previousFixesApplied")
+    knowledge_base_contributions: int = Field(alias="knowledgeBaseContributions")
+
+class Timestamps(BaseModel):
+    started_at: str = Field(alias="startedAt")
+    completed_at: str | None = Field(None, alias="completedAt")
+    duration: int | None = None
+
+class AnalysisResult(BaseModel):
+    analysis_id: str = Field(alias="analysisId")
+    status: AnalysisStatus
+    repo_url: str = Field(alias="repoUrl")
+    repo_name: str = Field(alias="repoName")
+    branch: str
+    detected_stack: DetectedStack = Field(alias="detectedStack")
+    stats: RepoStats
+    health_score: HealthScore | None = Field(None, alias="healthScore")
+    findings: FindingsSummary
+    vulnerability_chains: int = Field(alias="vulnerabilityChains")
+    fixes_generated: int = Field(alias="fixesGenerated")
+    senso_intelligence: SensoIntelligenceSummary = Field(alias="sensoIntelligence")
+    timestamps: Timestamps
+
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+```
+
+#### Example Response
 
 ```json
 {
@@ -246,11 +382,25 @@ type AnalysisStatus =
 
 ---
 
-### 2.3 `GET /analysis/:analysisId/findings`
+### 2.3 `GET /analysis/{analysisId}/findings`
 
 **Purpose:** Paginated, filterable list of all findings.
 
 **Frontend caller:** `<FindingsPanel />`
+
+#### FastAPI Route
+
+```python
+@router.get("/analysis/{analysis_id}/findings", response_model=FindingsResponse)
+async def get_findings(
+    analysis_id: str,
+    severity: Severity | None = None,
+    agent: AgentName | None = None,
+    limit: int = Query(default=20, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    ...
+```
 
 #### Query Parameters
 
@@ -258,19 +408,10 @@ type AnalysisStatus =
 |-------|------|---------|-------------|
 | `severity` | `critical\|warning\|info` | all | Filter by severity |
 | `agent` | `quality\|pattern\|security` | all | Filter by source agent |
-| `limit` | number | 20 | Page size |
+| `limit` | number | 20 | Page size (max 100) |
 | `offset` | number | 0 | Pagination offset |
 
 #### Response — 200 OK
-
-```typescript
-interface FindingsResponse {
-  items: Finding[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-```
 
 ```json
 {
@@ -314,19 +455,13 @@ interface FindingsResponse {
 
 ---
 
-### 2.4 `GET /analysis/:analysisId/chains`
+### 2.4 `GET /analysis/{analysisId}/chains`
 
 **Purpose:** Get all vulnerability chains with step-by-step attack paths.
 
 **Frontend caller:** `<GraphPanel />` vulnerability overlay + `<FindingDetail />`
 
 #### Response — 200 OK
-
-```typescript
-interface ChainsResponse {
-  chains: VulnerabilityChain[];
-}
-```
 
 ```json
 {
@@ -351,28 +486,13 @@ interface ChainsResponse {
 
 ---
 
-### 2.5 `GET /analysis/:analysisId/fixes`
+### 2.5 `GET /analysis/{analysisId}/fixes`
 
 **Purpose:** Prioritized fix plan with full documentation per fix.
 
 **Frontend caller:** `<FixPlan />` + `<FindingDetail />`
 
 #### Response — 200 OK
-
-```typescript
-interface FixesResponse {
-  fixes: Fix[];
-  summary: FixSummary;
-}
-
-interface FixSummary {
-  totalFixes: number;
-  criticalFixes: number;
-  estimatedTotalEffort: string;
-  keystoneFixes: number;
-  chainsEliminatedByKeystones: number;
-}
-```
 
 ```json
 {
@@ -418,7 +538,7 @@ interface FixSummary {
 
 ---
 
-### 2.6 `GET /analysis/:analysisId/graph`
+### 2.6 `GET /analysis/{analysisId}/graph`
 
 **Purpose:** Graph data for visualization. Filtered by view mode.
 
@@ -431,18 +551,19 @@ interface FixSummary {
 | `view` | `structure\|dependencies\|vulnerabilities` | `structure` | Graph view mode |
 | `depth` | number | 2 | Traversal depth from root |
 
-#### Response — 200 OK
+#### FastAPI Route
 
-```typescript
-interface GraphResponse {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  layout: {
-    type: 'hierarchical' | 'force' | 'radial';
-    direction?: 'TB' | 'LR';
-  };
-}
+```python
+@router.get("/analysis/{analysis_id}/graph", response_model=GraphResponse)
+async def get_graph(
+    analysis_id: str,
+    view: GraphViewMode = "structure",
+    depth: int = Query(default=2, ge=1, le=5),
+):
+    ...
 ```
+
+#### Response — 200 OK
 
 ```json
 {
@@ -476,7 +597,7 @@ interface GraphResponse {
 
 ---
 
-### 2.7 `POST /analysis/:analysisId/senso/search`
+### 2.7 `POST /analysis/{analysisId}/senso/search`
 
 **Purpose:** Natural language query against Senso knowledge base.
 
@@ -484,32 +605,26 @@ interface GraphResponse {
 
 #### Request
 
-```typescript
-interface SensoSearchRequest {
-  query: string;
-  maxResults?: number;                   // default: 5
-}
+```json
+{ "query": "What security patterns have been seen across all scanned repos?", "maxResults": 5 }
 ```
 
 #### Response — 200 OK
 
-```typescript
-interface SensoSearchResponse {
-  answer: string;
-  sources: {
-    contentId: string;
-    title: string;
-    score: number;
-    chunkText: string;
-  }[];
-  processingTimeMs: number;
-  totalResults: number;
+```json
+{
+  "answer": "Based on 10 scanned repositories, the three most common...",
+  "sources": [
+    { "contentId": "cnt_abc123", "title": "CVE-2024-29041 in user/project-a", "score": 0.92, "chunkText": "Express 4.17.1 path traversal..." }
+  ],
+  "processingTimeMs": 234,
+  "totalResults": 5
 }
 ```
 
 ---
 
-### 2.8 `POST /analysis/:analysisId/senso/generate`
+### 2.8 `POST /analysis/{analysisId}/senso/generate`
 
 **Purpose:** Generate content from Senso knowledge base.
 
@@ -517,23 +632,23 @@ interface SensoSearchResponse {
 
 #### Request
 
-```typescript
-interface SensoGenerateRequest {
-  contentType: string;                   // "executive security summary"
-  instructions: string;
-  save?: boolean;                        // persist back to Senso
-  maxResults?: number;
+```json
+{
+  "contentType": "executive security summary",
+  "instructions": "Generate a one-page executive summary of all critical findings",
+  "save": true,
+  "maxResults": 10
 }
 ```
 
 #### Response — 200 OK
 
-```typescript
-interface SensoGenerateResponse {
-  generatedText: string;
-  sources: { contentId: string; title: string; score: number }[];
-  processingTimeMs: number;
-  savedContentId?: string;               // if save=true
+```json
+{
+  "generatedText": "# Security Intelligence Summary\n\n## Critical Findings...",
+  "sources": [{ "contentId": "cnt_abc123", "title": "...", "score": 0.91 }],
+  "processingTimeMs": 1234,
+  "savedContentId": "cnt_gen_001"
 }
 ```
 
@@ -544,17 +659,119 @@ interface SensoGenerateResponse {
 ### Connection
 
 ```
-ws://localhost:3000/ws/analysis/{analysisId}
+ws://localhost:8000/ws/analysis/{analysisId}
 ```
 
 Frontend connects immediately after receiving `analysisId` from `POST /analyze`.
+
+#### FastAPI WebSocket Route
+
+```python
+# app/api/ws.py
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.ws.manager import ws_manager
+
+router = APIRouter()
+
+@router.websocket("/ws/analysis/{analysis_id}")
+async def websocket_endpoint(websocket: WebSocket, analysis_id: str):
+    await websocket.accept()
+    ws_manager.connect(analysis_id, websocket)
+    try:
+        while True:
+            # Keep connection alive; all messages are server → client
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(analysis_id, websocket)
+```
+
+```python
+# app/ws/manager.py
+from fastapi import WebSocket
+
+class ConnectionManager:
+    def __init__(self):
+        self._connections: dict[str, list[WebSocket]] = {}
+
+    def connect(self, analysis_id: str, ws: WebSocket):
+        self._connections.setdefault(analysis_id, []).append(ws)
+
+    def disconnect(self, analysis_id: str, ws: WebSocket):
+        if analysis_id in self._connections:
+            self._connections[analysis_id].remove(ws)
+
+    async def broadcast(self, analysis_id: str, message: dict):
+        for ws in self._connections.get(analysis_id, []):
+            await ws.send_json(message)
+
+ws_manager = ConnectionManager()
+```
+
+```python
+# app/ws/broadcaster.py
+class WebSocketBroadcaster:
+    """Agent-facing helper that wraps ws_manager with typed methods."""
+
+    def __init__(self, analysis_id: str):
+        self.analysis_id = analysis_id
+
+    async def send_status(self, agent: str, status: str, progress: float, message: str):
+        await ws_manager.broadcast(self.analysis_id, {
+            "type": "status", "agent": agent, "status": status,
+            "progress": progress, "message": message,
+        })
+
+    async def send_finding(self, finding):
+        await ws_manager.broadcast(self.analysis_id, {
+            "type": "finding",
+            "finding": {"id": finding.id, "severity": finding.severity,
+                        "title": finding.title, "agent": finding.agent},
+        })
+
+    async def send_graph_node(self, node):
+        await ws_manager.broadcast(self.analysis_id, {"type": "graph_node", "node": node})
+
+    async def send_graph_edge(self, edge):
+        await ws_manager.broadcast(self.analysis_id, {"type": "graph_edge", "edge": edge})
+
+    async def send_agent_complete(self, agent: str, count: int, provider: str, duration_ms: int = 0):
+        await ws_manager.broadcast(self.analysis_id, {
+            "type": "agent_complete", "agent": agent,
+            "findingsCount": count, "durationMs": duration_ms, "provider": provider,
+        })
+
+    async def send_senso_intelligence(self, insight: str, source_count: int):
+        await ws_manager.broadcast(self.analysis_id, {
+            "type": "senso_intelligence", "insight": insight, "sourceCount": source_count,
+        })
+
+    async def send_complete(self, health_score, findings_summary):
+        await ws_manager.broadcast(self.analysis_id, {
+            "type": "complete",
+            "healthScore": health_score.model_dump(by_alias=True),
+            "findingsSummary": findings_summary.model_dump(by_alias=True),
+            "duration": 42,
+        })
+
+    async def send_error(self, agent: str, message: str, recoverable: bool = False):
+        await ws_manager.broadcast(self.analysis_id, {
+            "type": "error", "agent": agent, "message": message, "recoverable": recoverable,
+        })
+
+    async def send_fastino_speed(self, message: str):
+        """Special toast for Fastino speed callouts during demo."""
+        await ws_manager.broadcast(self.analysis_id, {
+            "type": "status", "agent": "mapper", "status": "running",
+            "progress": -1, "message": f"⚡ Fastino: {message}",
+        })
+```
 
 ### Message Types (Server → Client)
 
 All messages follow: `{ "type": string, ...payload }`
 
 ```typescript
-// Union type of all WebSocket messages
+// TypeScript (frontend) — Union type of all WebSocket messages
 type WSMessage =
   | WSStatusUpdate
   | WSFinding
@@ -565,55 +782,43 @@ type WSMessage =
   | WSComplete
   | WSError;
 
-// Agent status change
 interface WSStatusUpdate {
   type: 'status';
   agent: AgentName;
   status: 'pending' | 'running' | 'complete' | 'error';
-  progress: number;                      // 0.0 - 1.0
-  message: string;                       // "Building file graph..."
+  progress: number;                      // 0.0 - 1.0 (or -1 for speed callout)
+  message: string;
 }
 
-// New finding discovered
 interface WSFinding {
   type: 'finding';
-  finding: {
-    id: string;
-    severity: Severity;
-    title: string;
-    agent: AgentName;
-  };
+  finding: { id: string; severity: Severity; title: string; agent: AgentName };
 }
 
-// New graph node added (for progressive graph building)
 interface WSGraphNode {
   type: 'graph_node';
   node: GraphNode;
 }
 
-// New graph edge added
 interface WSGraphEdge {
   type: 'graph_edge';
   edge: GraphEdge;
 }
 
-// Agent finished
 interface WSAgentComplete {
   type: 'agent_complete';
   agent: AgentName;
   findingsCount: number;
   durationMs: number;
-  provider: 'fastino' | 'openai' | 'tavily';  // which LLM/API was used
+  provider: 'fastino' | 'openai' | 'tavily';
 }
 
-// Senso cross-repo intelligence arrived
 interface WSSensoIntelligence {
   type: 'senso_intelligence';
   insight: string;
   sourceCount: number;
 }
 
-// Analysis complete — final results
 interface WSComplete {
   type: 'complete';
   healthScore: HealthScore;
@@ -621,7 +826,6 @@ interface WSComplete {
   duration: number;
 }
 
-// Error
 interface WSError {
   type: 'error';
   agent?: AgentName;
@@ -641,15 +845,14 @@ type AgentName = 'orchestrator' | 'mapper' | 'quality' | 'pattern' | 'security' 
 ← graph_node: { node: { type: "directory", label: "src/" } }
 ← graph_node: { node: { type: "file", label: "api.js" } }
 ← graph_edge: { edge: { source: "dir_src", target: "file_001", type: "contains" } }
-... (more nodes/edges as mapper builds graph)
-← status: { agent: "mapper", status: "running", progress: 0.8, message: "Extracting functions..." }
+← status: { agent: "mapper", status: "running", progress: -1, message: "⚡ Fastino: 47 files classified in 142ms" }
 ← agent_complete: { agent: "mapper", findingsCount: 0, provider: "fastino" }
 ← status: { agent: "quality", status: "running", message: "Analyzing code quality..." }
 ← status: { agent: "pattern", status: "running", message: "Checking patterns..." }
 ← status: { agent: "security", status: "running", message: "Searching for CVEs..." }
 ← finding: { finding: { id: "fnd_001", severity: "critical", title: "CVE-2024-29041..." } }
 ← finding: { finding: { id: "fnd_002", severity: "warning", title: "Unhandled error..." } }
-← senso_intelligence: { insight: "Similar vulnerability found in 2 previous repos" }
+← senso_intelligence: { insight: "Similar vulnerability found in 2 previous repos", sourceCount: 2 }
 ← agent_complete: { agent: "security", findingsCount: 15, provider: "tavily" }
 ← agent_complete: { agent: "quality", findingsCount: 12, provider: "fastino" }
 ← agent_complete: { agent: "pattern", findingsCount: 8, provider: "fastino" }
@@ -662,13 +865,13 @@ type AgentName = 'orchestrator' | 'mapper' | 'quality' | 'pattern' | 'security' 
 
 ---
 
-## 4. SHARED TYPESCRIPT TYPES
+## 4. SHARED TYPES — TYPESCRIPT (FRONTEND) & PYDANTIC (BACKEND)
 
-These types are shared between frontend and backend. Place in `src/types/shared.ts`.
+### TypeScript Types — `src/types/shared.ts` (Frontend)
 
 ```typescript
 // ============================================================
-// CORE DOMAIN TYPES
+// CORE ENUMS
 // ============================================================
 
 export type Severity = 'critical' | 'warning' | 'info';
@@ -683,15 +886,15 @@ export type LLMProvider = 'fastino' | 'openai' | 'tavily' | 'senso';
 // ============================================================
 
 export interface HealthScore {
-  overall: number;                       // 0-100
-  letterGrade: string;                   // "A+" through "F"
-  breakdown: Record<string, CategoryScore>;
-  confidence: number;                    // 0-1
+  overall: number;
+  letterGrade: string;
+  breakdown: Record;
+  confidence: number;
 }
 
 export interface CategoryScore {
-  score: number;                         // 0-10
-  max: number;                           // always 10
+  score: number;
+  max: number;
   status: CategoryStatus;
 }
 
@@ -700,20 +903,20 @@ export interface CategoryScore {
 // ============================================================
 
 export interface Finding {
-  id: string;                            // "fnd_001"
-  type: string;                          // "dependency_vulnerability" | "code_smell" | etc.
+  id: string;
+  type: string;
   severity: Severity;
   agent: AgentName;
   title: string;
-  description: string;                   // Technical description
-  plainDescription: string;              // Junior-friendly description
+  description: string;
+  plainDescription: string;
   location: FindingLocation;
   blastRadius: BlastRadius;
   cve?: CVEInfo;
   chainIds: string[];
   fixId?: string;
   sensoContentId?: string;
-  confidence: number;                    // 0-1
+  confidence: number;
 }
 
 export interface FindingLocation {
@@ -730,8 +933,8 @@ export interface BlastRadius {
 }
 
 export interface CVEInfo {
-  id: string;                            // "CVE-2024-29041"
-  cvssScore: number;                     // 0-10
+  id: string;
+  cvssScore: number;
   exploitAvailable: boolean;
   fixedVersion: string;
 }
@@ -741,14 +944,14 @@ export interface CVEInfo {
 // ============================================================
 
 export interface Fix {
-  id: string;                            // "fix_001"
-  priority: number;                      // 1 = highest
+  id: string;
+  priority: number;
   title: string;
   severity: Severity;
-  type: string;                          // "dependency_upgrade" | "code_patch" | "refactor"
-  estimatedEffort: string;               // "30 minutes"
+  type: string;
+  estimatedEffort: string;
   chainsResolved: number;
-  findingsResolved: string[];            // finding IDs
+  findingsResolved: string[];
   documentation: FixDocumentation;
   sensoContentId?: string;
   sensoHistoricalContext?: string;
@@ -765,8 +968,8 @@ export interface FixDocumentation {
 
 export interface AffectedCode {
   file: string;
-  lines: string;                         // "12-45"
-  context: string;                       // "serves static files"
+  lines: string;
+  context: string;
 }
 
 // ============================================================
@@ -774,20 +977,20 @@ export interface AffectedCode {
 // ============================================================
 
 export interface VulnerabilityChain {
-  id: string;                            // "chain_001"
+  id: string;
   severity: 'critical' | 'high' | 'medium';
   description: string;
   steps: ChainStep[];
   blastRadius: { files: number; functions: number; endpoints: number };
-  keystoneFix: string;                   // fix ID
+  keystoneFix: string;
   findingIds: string[];
 }
 
 export interface ChainStep {
   type: 'entry' | 'flow' | 'vulnerability' | 'impact';
-  node: string;                          // display label
-  file?: string;                         // "src/routes/api.js:15"
-  cve?: string;                          // "CVE-2024-29041"
+  node: string;
+  file?: string;
+  cve?: string;
   description: string;
 }
 
@@ -800,12 +1003,12 @@ export interface GraphNode {
   type: 'file' | 'directory' | 'function' | 'class' | 'package' | 'endpoint';
   label: string;
   path?: string;
-  category?: string;                     // "source" | "test" | "config"
+  category?: string;
   language?: string;
   lines?: number;
   severity?: CategoryStatus;
   findingCount: number;
-  metadata: Record<string, any>;
+  metadata: Record;
 }
 
 export interface GraphEdge {
@@ -851,30 +1054,225 @@ export interface SensoGenerateResult {
 }
 
 // ============================================================
-// AGENT STATUS (for progress tracking)
+// AGENT STATUS
 // ============================================================
 
 export interface AgentStatus {
   name: AgentName | 'orchestrator' | 'doctor' | 'senso' | 'mapper';
   status: 'pending' | 'running' | 'complete' | 'error';
-  progress: number;                      // 0-1
+  progress: number;
   message: string;
   findingsCount?: number;
   durationMs?: number;
-  provider?: LLMProvider;                // which sponsor tool was used
+  provider?: LLMProvider;
 }
 ```
+
+### Pydantic Models — `app/models/` (Backend)
+
+```python
+# app/models/shared.py
+from __future__ import annotations
+from typing import Literal, Any
+from pydantic import BaseModel, Field, ConfigDict
+
+# ============================================================
+# CORE ENUMS
+# ============================================================
+
+Severity = Literal["critical", "warning", "info"]
+AgentName = Literal["quality", "pattern", "security"]
+FullAgentName = Literal["orchestrator", "mapper", "quality", "pattern", "security", "doctor", "senso"]
+GraphViewMode = Literal["structure", "dependencies", "vulnerabilities"]
+AnalysisStatus = Literal["queued", "cloning", "mapping", "analyzing", "completing", "completed", "failed"]
+CategoryStatus = Literal["healthy", "warning", "critical"]
+LLMProvider = Literal["fastino", "openai", "tavily", "senso"]
+
+# ============================================================
+# HEALTH SCORE
+# ============================================================
+
+class CategoryScore(BaseModel):
+    score: int
+    max: int = 10
+    status: CategoryStatus
+
+class HealthScore(BaseModel):
+    overall: int
+    letter_grade: str = Field(alias="letterGrade")
+    breakdown: dict[str, CategoryScore]
+    confidence: float
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+# ============================================================
+# FINDING
+# ============================================================
+
+class FindingLocation(BaseModel):
+    files: list[str]
+    primary_file: str = Field(alias="primaryFile")
+    start_line: int = Field(alias="startLine")
+    end_line: int = Field(alias="endLine")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class BlastRadius(BaseModel):
+    files_affected: int = Field(alias="filesAffected")
+    functions_affected: int = Field(alias="functionsAffected")
+    endpoints_affected: int = Field(alias="endpointsAffected")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class CVEInfo(BaseModel):
+    id: str
+    cvss_score: float = Field(alias="cvssScore")
+    exploit_available: bool = Field(alias="exploitAvailable")
+    fixed_version: str = Field(alias="fixedVersion")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class Finding(BaseModel):
+    id: str
+    type: str
+    severity: Severity
+    agent: AgentName
+    title: str
+    description: str
+    plain_description: str = Field(alias="plainDescription")
+    location: FindingLocation
+    blast_radius: BlastRadius = Field(alias="blastRadius")
+    cve: CVEInfo | None = None
+    chain_ids: list[str] = Field(default_factory=list, alias="chainIds")
+    fix_id: str | None = Field(None, alias="fixId")
+    senso_content_id: str | None = Field(None, alias="sensoContentId")
+    confidence: float
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+# ============================================================
+# FIX
+# ============================================================
+
+class AffectedCode(BaseModel):
+    file: str
+    lines: str
+    context: str
+
+class FixDocumentation(BaseModel):
+    whats_wrong: str = Field(alias="whatsWrong")
+    affected_code: list[AffectedCode] = Field(alias="affectedCode")
+    steps: list[str]
+    before_code: str | None = Field(None, alias="beforeCode")
+    after_code: str | None = Field(None, alias="afterCode")
+    migration_guide_url: str | None = Field(None, alias="migrationGuideUrl")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class Fix(BaseModel):
+    id: str
+    priority: int
+    title: str
+    severity: Severity
+    type: str
+    estimated_effort: str = Field(alias="estimatedEffort")
+    chains_resolved: int = Field(alias="chainsResolved")
+    findings_resolved: list[str] = Field(alias="findingsResolved")
+    documentation: FixDocumentation
+    senso_content_id: str | None = Field(None, alias="sensoContentId")
+    senso_historical_context: str | None = Field(None, alias="sensoHistoricalContext")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class FixSummary(BaseModel):
+    total_fixes: int = Field(alias="totalFixes")
+    critical_fixes: int = Field(alias="criticalFixes")
+    estimated_total_effort: str = Field(alias="estimatedTotalEffort")
+    keystone_fixes: int = Field(alias="keystoneFixes")
+    chains_eliminated_by_keystones: int = Field(alias="chainsEliminatedByKeystones")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+# ============================================================
+# VULNERABILITY CHAIN
+# ============================================================
+
+class ChainStep(BaseModel):
+    type: Literal["entry", "flow", "vulnerability", "impact"]
+    node: str
+    file: str | None = None
+    cve: str | None = None
+    description: str
+
+class VulnerabilityChain(BaseModel):
+    id: str
+    severity: Literal["critical", "high", "medium"]
+    description: str
+    steps: list[ChainStep]
+    blast_radius: dict[str, int] = Field(alias="blastRadius")
+    keystone_fix: str = Field(alias="keystoneFix")
+    finding_ids: list[str] = Field(alias="findingIds")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+# ============================================================
+# GRAPH
+# ============================================================
+
+class GraphNode(BaseModel):
+    id: str
+    type: Literal["file", "directory", "function", "class", "package", "endpoint"]
+    label: str
+    path: str | None = None
+    category: str | None = None
+    language: str | None = None
+    lines: int | None = None
+    severity: CategoryStatus | None = None
+    finding_count: int = Field(0, alias="findingCount")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class GraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: Literal["contains", "imports", "depends_on", "calls", "handles"]
+    is_vulnerability_chain: bool = Field(False, alias="isVulnerabilityChain")
+    chain_id: str | None = Field(None, alias="chainId")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class GraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    layout: dict[str, str]
+
+# ============================================================
+# SENSO INTELLIGENCE
+# ============================================================
+
+class SensoSource(BaseModel):
+    content_id: str = Field(alias="contentId")
+    title: str
+    score: float
+    chunk_text: str = Field(alias="chunkText")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class SensoSearchResult(BaseModel):
+    answer: str
+    sources: list[SensoSource]
+    processing_time_ms: int = Field(alias="processingTimeMs")
+    total_results: int = Field(alias="totalResults")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+
+class SensoGenerateResult(BaseModel):
+    generated_text: str = Field(alias="generatedText")
+    sources: list[dict]
+    processing_time_ms: int = Field(alias="processingTimeMs")
+    saved_content_id: str | None = Field(None, alias="savedContentId")
+    model_config = ConfigDict(populate_by_name=True, by_alias=True)
+```
+
+**Key Pydantic Convention:** All models use `by_alias=True` serialization so the JSON output uses camelCase (matching the TypeScript frontend types), while Python code uses snake_case internally.
 
 ---
 
 ## 5. COMPONENT ↔ ENDPOINT MAPPING
 
-This table maps every frontend component to the backend endpoints it consumes.
-
 | Component | Endpoint(s) | Trigger | Data Used |
 |-----------|------------|---------|-----------|
-| `<AnalysisInput />` | `POST /analyze` | Button click | Returns `analysisId` + `websocketUrl` |
-| `<AnalysisProgress />` | WebSocket `/ws/analysis/:id` | Auto-connect after analyze | `status`, `finding`, `agent_complete` messages |
+| `<AnalysisInput />` | `POST http://localhost:8000/api/v1/analyze` | Button click | Returns `analysisId` + `websocketUrl` |
+| `<AnalysisProgress />` | `ws://localhost:8000/ws/analysis/:id` | Auto-connect after analyze | `status`, `finding`, `agent_complete` messages |
 | `<AnalysisProgress />` | `GET /analysis/:id` (fallback) | Poll every 2s if WS fails | `status`, `agentStatuses` |
 | `<HealthScoreHero />` | `GET /analysis/:id` | On `complete` WS message | `healthScore.overall`, `letterGrade`, `confidence` |
 | `<ScoreBreakdown />` | `GET /analysis/:id` | Same as above | `healthScore.breakdown` (5 category scores) |
@@ -895,12 +1293,25 @@ This table maps every frontend component to the backend endpoints it consumes.
 
 ### HTTP Error Response Format
 
+```python
+# FastAPI exception handler
+from fastapi import HTTPException
+
+class VibeCheckError(HTTPException):
+    def __init__(self, status_code: int, code: str, message: str, details: dict = None):
+        super().__init__(
+            status_code=status_code,
+            detail={"error": {"code": code, "message": message, "details": details}},
+        )
+```
+
 ```typescript
+// TypeScript (frontend)
 interface ErrorResponse {
   error: {
-    code: string;                        // Machine-readable error code
-    message: string;                     // Human-readable message
-    details?: Record<string, any>;       // Additional context
+    code: string;
+    message: string;
+    details?: Record;
   };
 }
 ```
@@ -910,7 +1321,7 @@ interface ErrorResponse {
 | Code | HTTP Status | Description |
 |------|-------------|-------------|
 | `INVALID_URL` | 400 | Not a valid GitHub URL |
-| `INVALID_PARAMS` | 400 | Missing or invalid request parameters |
+| `INVALID_PARAMS` | 400 | Missing or invalid request parameters (Pydantic validation) |
 | `REPO_NOT_FOUND` | 404 | GitHub repository doesn't exist or is private |
 | `ANALYSIS_NOT_FOUND` | 404 | Analysis ID doesn't exist |
 | `REPO_TOO_LARGE` | 400 | Repository exceeds max file limit |
@@ -969,13 +1380,13 @@ interface ErrorResponse {
                     └───────────┘
 
 States and what's happening:
-  QUEUED     → Request accepted, waiting to start
-  CLONING    → git clone in progress
+  QUEUED     → Request accepted, BackgroundTask queued
+  CLONING    → asyncio.create_subprocess_exec git clone
   MAPPING    → Mapper Agent building Neo4j graph (Fastino extraction)
-  ANALYZING  → Quality + Pattern + Security agents running in parallel
-  COMPLETING → Doctor Agent generating fixes + Senso Agent ingesting
-  COMPLETED  → All results available
-  FAILED     → Unrecoverable error (check agentStatuses for details)
+  ANALYZING  → Quality + Pattern + Security via asyncio.TaskGroup
+  COMPLETING → Doctor Agent + Senso Agent
+  COMPLETED  → All results available, Health Score computed
+  FAILED     → Unrecoverable error (check agentStatuses)
 ```
 
 ### Frontend State Rendering Rules
@@ -989,6 +1400,45 @@ States and what's happening:
 | `completing` | "Generating fixes..." + partial findings | — |
 | `completed` | Full dashboard: score, graph, findings, fixes, Senso | Progress bars |
 | `failed` | Error message + retry button | Dashboard |
+
+---
+
+## APPENDIX: RUNNING BOTH SERVICES
+
+### Development Setup
+
+```bash
+# Terminal 1: FastAPI Backend
+cd vibe-check-backend
+pip install -r requirements.txt
+cp .env.example .env  # fill in API keys
+uvicorn app.main:app --reload --port 8000
+
+# Terminal 2: Next.js Frontend
+cd vibe-check-frontend
+npm install
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1" > .env.local
+echo "NEXT_PUBLIC_WS_URL=ws://localhost:8000" >> .env.local
+npm run dev
+```
+
+### Docker Compose (Stretch)
+
+```yaml
+version: "3.9"
+services:
+  backend:
+    build: ./vibe-check-backend
+    ports: ["8000:8000"]
+    env_file: ./vibe-check-backend/.env
+  frontend:
+    build: ./vibe-check-frontend
+    ports: ["3000:3000"]
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8000/api/v1
+      NEXT_PUBLIC_WS_URL: ws://backend:8000
+    depends_on: [backend]
+```
 
 ---
 
