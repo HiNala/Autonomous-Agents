@@ -3,7 +3,7 @@
 export type Severity = "critical" | "warning" | "info";
 export type AgentName = "quality" | "pattern" | "security" | "orchestrator" | "doctor" | "mapper";
 export type GraphViewMode = "structure" | "dependencies" | "vulnerabilities";
-export type AnalysisStatus = "queued" | "cloning" | "mapping" | "analyzing" | "completing" | "completed" | "failed";
+export type AnalysisStatus = "idle" | "queued" | "cloning" | "mapping" | "analyzing" | "completing" | "completed" | "failed";
 export type CategoryStatus = "healthy" | "warning" | "critical";
 export type LLMProvider = "fastino" | "openai" | "tavily" | "yutori";
 
@@ -171,7 +171,7 @@ export interface AnalysisResult {
   repoName: string;
   branch: string;
   detectedStack?: DetectedStack;
-  stats?: RepoStats;
+  stats?: RepoStats & { total_files?: number; totalFiles?: number };
   healthScore?: HealthScore;
   findings: FindingsSummary;
   vulnerabilityChains: number;
@@ -181,6 +181,9 @@ export interface AnalysisResult {
     completedAt: string | null;
     duration: number | null;
   };
+  // Backend may return snake_case variants
+  repo_name?: string;
+  duration_seconds?: number;
 }
 
 // ── REQUESTS & RESPONSES ────────────────────────────────────
@@ -208,6 +211,7 @@ export type WSMessage =
   | WSGraphEdge
   | WSAgentComplete
   | WSComplete
+  | WSToolActivity
   | WSError;
 
 export interface WSStatusUpdate {
@@ -239,6 +243,14 @@ export interface WSComplete {
   healthScore: HealthScore;
   findingsSummary: FindingsSummary;
   duration: number;
+}
+
+export interface WSToolActivity {
+  type: "tool_activity";
+  agent?: string;
+  message?: string;
+  provider?: string;
+  timestamp?: string;
 }
 
 export interface WSError {

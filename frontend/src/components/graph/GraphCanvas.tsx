@@ -250,7 +250,7 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
             "border-opacity": 0.1,
             "text-opacity": 0,
             "shadow-opacity": 0,
-            "transition-duration": "0.3s",
+            "transition-duration": 300,
           },
         },
 
@@ -294,7 +294,7 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
             "curve-style": "bezier",
             "opacity": 0.5,
             "transition-property": "line-color, width, opacity",
-            "transition-duration": "0.25s",
+            "transition-duration": 250,
           },
         },
 

@@ -34,6 +34,7 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
 
   useAnalysisWebSocket(id);
 
+  const isIdle      = status === "idle";
   const isScanning  = ["queued", "cloning", "mapping", "analyzing", "completing"].includes(status);
   const isCompleted = status === "completed";
   const isFailed    = status === "failed";
@@ -54,6 +55,14 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
 
   return (
     <AppShell>
+      {/* ── LOADING / IDLE ───────────────────────────────── */}
+      {isIdle && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", flexDirection: "column", gap: "var(--space-3)" }}>
+          <div style={{ width: 40, height: 40, border: "2px solid var(--border-default)", borderTopColor: "var(--color-accent)", borderRadius: "50%" }} className="animate-spin" />
+          <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-small)", color: "var(--text-tertiary)" }}>Loading analysis...</span>
+        </div>
+      )}
+
       {/* ── SCANNING VIEW ─────────────────────────────────── */}
       {isScanning && <AnalysisProgress />}
 

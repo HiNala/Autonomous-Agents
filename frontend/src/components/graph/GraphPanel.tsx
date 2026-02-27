@@ -12,7 +12,7 @@ const GraphCanvas = dynamic(
 
 function NodeDetailPanel({ node, edges, allNodes, onClose }: {
   node: GraphNode;
-  edges: { source: string; target: string; relationship: string }[];
+  edges: { source: string; target: string; type: string }[];
   allNodes: GraphNode[];
   onClose: () => void;
 }) {
@@ -22,7 +22,7 @@ function NodeDetailPanel({ node, edges, allNodes, onClose }: {
     .map((e) => {
       const otherId = e.source === node.id ? e.target : e.source;
       const other = nodeMap.get(otherId);
-      return { relationship: e.relationship, name: other?.label ?? otherId, type: other?.type ?? "unknown" };
+      return { relationship: e.type, name: other?.label ?? otherId, type: other?.type ?? "unknown" };
     });
 
   const typeColors: Record<string, string> = {

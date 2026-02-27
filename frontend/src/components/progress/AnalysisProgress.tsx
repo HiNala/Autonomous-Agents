@@ -414,7 +414,7 @@ export function AnalysisProgress() {
               <div style={{ padding: "var(--space-2) 0" }}>
                 {liveFindings.slice(-5).reverse().map((f, i) => (
                   <div
-                    key={f.id ?? i}
+                    key={`${f.id}-${i}`}
                     style={{
                       display: "flex",
                       alignItems: "center",

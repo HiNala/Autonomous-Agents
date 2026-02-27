@@ -115,9 +115,12 @@ function FindingRow({ finding }: { finding: Finding }) {
           <span style={{ fontSize: "var(--text-micro)", color: "var(--text-quaternary)" }}>
             {finding.blastRadius.filesAffected} files
           </span>
-          {/* Show in graph button — reveals on hover */}
-          <button
+          {/* Show in graph — reveals on hover */}
+          <span
+            role="button"
+            tabIndex={0}
             onClick={handleShowInGraph}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleShowInGraph(e as unknown as React.MouseEvent); }}
             style={{
               background: "rgba(59,130,246,0.1)",
               border: "1px solid var(--color-accent-border)",
@@ -141,7 +144,7 @@ function FindingRow({ finding }: { finding: Finding }) {
               <line x1="3" y1="5" x2="6" y2="7"/><line x1="9" y1="5" x2="6" y2="7"/>
             </svg>
             Graph
-          </button>
+          </span>
         </div>
       </div>
     </button>

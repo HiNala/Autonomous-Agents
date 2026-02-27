@@ -76,7 +76,7 @@ const defaultAgentStatuses = (): Record<AgentName, AgentStatus> =>
 
 export const useAnalysisStore = create<AnalysisStore>((set) => ({
   analysisId: null,
-  status: "queued",
+  status: "idle",
   result: null,
   agentStatuses: defaultAgentStatuses(),
   graphNodes: [],
@@ -94,7 +94,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   chains: [],
   errorMessage: null,
 
-  startAnalysis: (id) => set({ analysisId: id, status: "queued", graphNodes: [], graphEdges: [], liveFindings: [], activityLog: [], agentStatuses: defaultAgentStatuses(), errorMessage: null }),
+  startAnalysis: (id) => set({ analysisId: id, status: "idle", graphNodes: [], graphEdges: [], liveFindings: [], activityLog: [], agentStatuses: defaultAgentStatuses(), errorMessage: null }),
 
   updateAgentStatus: (agent, status) =>
     set((s) => ({ agentStatuses: { ...s.agentStatuses, [agent]: status } })),
@@ -132,7 +132,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   setStatus: (status) => set({ status }),
 
   reset: () => set({
-    analysisId: null, status: "queued", result: null,
+    analysisId: null, status: "idle", result: null,
     agentStatuses: defaultAgentStatuses(),
     graphNodes: [], graphEdges: [], liveFindings: [], activityLog: [],
     findings: [], fixes: [], fixSummary: null, chains: [],
