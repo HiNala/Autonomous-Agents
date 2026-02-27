@@ -1,6 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { use } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { AnalysisProgress } from "@/components/progress/AnalysisProgress";
 import { HealthScoreHero } from "@/components/score/HealthScoreHero";
@@ -18,13 +19,11 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
   const { id } = use(params);
   const { analysisId, status, startAnalysis, setResult, setFindings, setFixes, setChains } = useAnalysisStore();
 
-  // Boot store if navigating directly to URL
   useEffect(() => {
     if (analysisId !== id) {
       startAnalysis(id);
       api.getAnalysis(id).then((r) => {
         setResult(r);
-        // If already completed, load all sub-resources
         if (r.status === "completed") {
           api.getFindings(id, { limit: 100 }).then((f) => setFindings(f.items)).catch(() => null);
           api.getFixes(id).then((f) => setFixes(f.fixes, f.summary)).catch(() => null);
@@ -36,9 +35,9 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
 
   useAnalysisWebSocket(id);
 
-  const isScanning   = ["queued", "cloning", "mapping", "analyzing", "completing"].includes(status);
-  const isCompleted  = status === "completed";
-  const isFailed     = status === "failed";
+  const isScanning  = ["queued", "cloning", "mapping", "analyzing", "completing"].includes(status);
+  const isCompleted = status === "completed";
+  const isFailed    = status === "failed";
 
   return (
     <AppShell>
@@ -48,17 +47,38 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
       {/* ── COMPLETED DASHBOARD ───────────────────────────── */}
       {isCompleted && (
         <div
-          style={{ maxWidth: 1400, margin: "0 auto", padding: "var(--space-6)", display: "flex", flexDirection: "column", gap: "var(--space-5)" }}
+          style={{
+            maxWidth: 1400,
+            margin: "0 auto",
+            padding: "var(--space-5) var(--space-6)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-5)",
+          }}
           className="animate-fade-in"
         >
           {/* Row 1 — Score hero + breakdown */}
-          <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: "var(--space-5)", alignItems: "start" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "260px 1fr",
+              gap: "var(--space-5)",
+              alignItems: "start",
+            }}
+          >
             <HealthScoreHero />
             <ScoreBreakdown />
           </div>
 
-          {/* Row 2 — Graph + Findings (with FindingDetail slide-over) */}
-          <div style={{ display: "grid", gridTemplateColumns: "60% 1fr", gap: "var(--space-5)", alignItems: "start" }}>
+          {/* Row 2 — Graph + Findings */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "60% 1fr",
+              gap: "var(--space-5)",
+              alignItems: "start",
+            }}
+          >
             <GraphPanel />
             <FindingsPanel />
           </div>
@@ -66,12 +86,12 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
           {/* Row 3 — Fix plan */}
           <FixPlan />
 
-          {/* Row 4 — Senso intelligence panel */}
+          {/* Row 4 — Senso intelligence */}
           <SensoIntelligencePanel />
         </div>
       )}
 
-      {/* Finding detail slide-over — rendered outside the grid so it overlays */}
+      {/* Finding detail slide-over — outside grid, overlays everything */}
       {isCompleted && <FindingDetail />}
 
       {/* ── FAILED STATE ──────────────────────────────────── */}
@@ -82,21 +102,119 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
 
 function FailedState() {
   const { errorMessage } = useAnalysisStore();
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", gap: "var(--space-5)", padding: "var(--space-6)" }}>
-      <div style={{ fontSize: "3rem" }}>⚠️</div>
-      <div style={{ textAlign: "center" }}>
-        <h2 style={{ fontSize: "var(--text-h2)", color: "var(--color-critical)", margin: "0 0 var(--space-3)" }}>Analysis Failed</h2>
-        <p style={{ color: "var(--text-secondary)", margin: 0, maxWidth: 420, lineHeight: 1.6 }}>
-          {errorMessage ?? "An unexpected error occurred. Please check the repository URL and try again."}
-        </p>
-      </div>
-      <a
-        href="/"
-        style={{ background: "var(--color-accent)", color: "white", padding: "10px 24px", borderRadius: "var(--radius-md)", textDecoration: "none", fontWeight: 600, fontSize: "var(--text-small)" }}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "60vh",
+        padding: "var(--space-6)",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 480,
+          width: "100%",
+          background: "rgba(17, 17, 22, 0.72)",
+          backdropFilter: "blur(12px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(12px) saturate(1.4)",
+          border: "1px solid rgba(245, 158, 11, 0.25)",
+          borderLeft: "4px solid var(--color-warning)",
+          borderRadius: "var(--radius-xl)",
+          padding: "var(--space-8) var(--space-6)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "var(--space-4)",
+          textAlign: "center",
+          boxShadow: "var(--shadow-modal), 0 0 40px rgba(245,158,11,0.08)",
+          animation: "slide-up 0.3s ease-out",
+        }}
       >
-        ← Try Another Repo
-      </a>
+        {/* Icon */}
+        <div
+          style={{
+            width: 52,
+            height: 52,
+            borderRadius: "50%",
+            background: "rgba(245, 158, 11, 0.12)",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "1.5rem",
+          }}
+        >
+          ⚠
+        </div>
+
+        <div>
+          <h2
+            style={{
+              fontSize: "var(--text-h2)",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              margin: "0 0 var(--space-2)",
+              fontFamily: "var(--font-heading)",
+            }}
+          >
+            Something went wrong
+          </h2>
+          <p
+            style={{
+              color: "var(--text-secondary)",
+              margin: 0,
+              maxWidth: 380,
+              lineHeight: 1.65,
+              fontSize: "var(--text-body)",
+            }}
+          >
+            {errorMessage ?? "An unexpected error occurred. Please check the repository URL and try again."}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+          <Link
+            href="/"
+            style={{
+              background: "rgba(17, 17, 22, 0.8)",
+              color: "var(--text-secondary)",
+              padding: "10px 20px",
+              borderRadius: "var(--radius-md)",
+              textDecoration: "none",
+              fontWeight: 500,
+              fontSize: "var(--text-small)",
+              border: "1px solid var(--border-default)",
+              transition: "all 0.15s ease",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ← Try Another Repo
+          </Link>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              background: "rgba(59, 130, 246, 0.15)",
+              color: "var(--color-accent-text)",
+              padding: "10px 20px",
+              borderRadius: "var(--radius-md)",
+              fontWeight: 500,
+              fontSize: "var(--text-small)",
+              border: "1px solid var(--color-accent-border)",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            ↺ Retry
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -10,6 +10,17 @@ interface SearchResult {
   totalResults: number;
 }
 
+const EXAMPLE_QUERIES = [
+  "What are the most critical security findings?",
+  "Which single fix eliminates the most chains?",
+  "What patterns appear across repos?",
+];
+
+const SENSO_PURPLE = "rgba(147, 51, 234, 0.15)";
+const SENSO_BORDER = "rgba(147, 51, 234, 0.2)";
+const SENSO_ACCENT = "#9333EA";
+const SENSO_TEXT   = "#D8B4FE";
+
 export function SensoIntelligencePanel() {
   const { analysisId, result, sensoInsights } = useAnalysisStore();
   const [expanded, setExpanded] = useState(false);
@@ -37,22 +48,20 @@ export function SensoIntelligencePanel() {
     }
   }
 
-  const EXAMPLE_QUERIES = [
-    "What are the most critical security findings?",
-    "Which single fix would eliminate the most chains?",
-    "What patterns appear across repos?",
-  ];
-
   return (
     <div
       style={{
-        background: "var(--bg-surface)",
-        border: "1px solid var(--border-default)",
+        background: "rgba(17, 17, 22, 0.72)",
+        backdropFilter: "blur(12px) saturate(1.4)",
+        WebkitBackdropFilter: "blur(12px) saturate(1.4)",
+        border: `1px solid ${SENSO_BORDER}`,
+        borderTop: `1px solid rgba(147, 51, 234, 0.25)`,
         borderRadius: "var(--radius-lg)",
         overflow: "hidden",
+        boxShadow: "var(--glow-senso), var(--shadow-panel)",
       }}
     >
-      {/* Collapsed header — always visible */}
+      {/* Collapsed bar — always visible */}
       <button
         onClick={() => setExpanded((e) => !e)}
         style={{
@@ -60,40 +69,88 @@ export function SensoIntelligencePanel() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "var(--space-4)",
-          background: "transparent",
+          padding: "var(--space-4) var(--space-5)",
+          background: expanded ? SENSO_PURPLE : "transparent",
           border: "none",
           cursor: "pointer",
           textAlign: "left",
+          transition: "background 0.2s ease",
         }}
+        onMouseEnter={(e) => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "rgba(147, 51, 234, 0.08)"; }}
+        onMouseLeave={(e) => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-          <span style={{ fontSize: "1rem" }}>🧠</span>
-          <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-small)", fontWeight: 700, color: "var(--text-secondary)", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          {/* Brain icon with glow */}
+          <span
+            style={{ fontSize: "1.1rem" }}
+            className="animate-brain"
+          >
+            🧠
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--font-code)",
+              fontSize: "var(--text-micro)",
+              fontWeight: 700,
+              color: SENSO_TEXT,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+            }}
+          >
             INTELLIGENCE
           </span>
+
           {hasIntelligence && (
-            <span style={{ fontSize: "var(--text-micro)", color: "var(--color-accent)", fontFamily: "var(--font-code)" }}>
+            <span
+              style={{
+                fontSize: "var(--text-micro)",
+                color: SENSO_TEXT,
+                fontFamily: "var(--font-code)",
+                opacity: 0.8,
+              }}
+            >
               · {sensoInsights.length} cross-repo pattern{sensoInsights.length !== 1 ? "s" : ""}
             </span>
           )}
           {sensoSummary && (
-            <span style={{ fontSize: "var(--text-micro)", color: "var(--text-tertiary)", fontFamily: "var(--font-code)" }}>
+            <span
+              style={{
+                fontSize: "var(--text-micro)",
+                color: "var(--text-tertiary)",
+                fontFamily: "var(--font-code)",
+              }}
+            >
               · {sensoSummary.total} findings indexed
             </span>
           )}
         </div>
-        <span style={{ color: "var(--text-tertiary)", fontSize: 12, transition: "transform 0.2s ease", transform: expanded ? "rotate(180deg)" : "none" }}>▾</span>
+
+        <span
+          style={{
+            color: SENSO_TEXT,
+            fontSize: 11,
+            transition: "transform 0.2s ease",
+            transform: expanded ? "rotate(180deg)" : "none",
+            display: "inline-block",
+            opacity: 0.7,
+          }}
+        >
+          ▾
+        </span>
       </button>
 
       {/* Expanded content */}
       {expanded && (
-        <div style={{ borderTop: "1px solid var(--border-default)" }}>
-
-          {/* Cross-repo patterns from WebSocket */}
+        <div
+          style={{
+            borderTop: `1px solid ${SENSO_BORDER}`,
+            animation: "slide-up 0.2s ease-out",
+          }}
+        >
+          {/* Cross-repo patterns */}
           {hasIntelligence && (
-            <div style={{ padding: "var(--space-4)", borderBottom: "1px solid var(--border-default)" }}>
-              <h3 style={sectionTitle}>📊 Patterns Observed</h3>
+            <div style={{ padding: "var(--space-4) var(--space-5)", borderBottom: `1px solid ${SENSO_BORDER}` }}>
+              <h3 style={sectionTitle}>Patterns Observed</h3>
               <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
                 {sensoInsights.map((ins, i) => (
                   <div
@@ -102,15 +159,16 @@ export function SensoIntelligencePanel() {
                       display: "flex",
                       alignItems: "flex-start",
                       gap: "var(--space-3)",
-                      padding: "var(--space-3)",
-                      background: "var(--bg-surface-raised)",
+                      padding: "var(--space-3) var(--space-4)",
+                      background: SENSO_PURPLE,
+                      border: `1px solid ${SENSO_BORDER}`,
                       borderRadius: "var(--radius-md)",
                       fontSize: "var(--text-small)",
                       color: "var(--text-secondary)",
-                      lineHeight: 1.5,
+                      lineHeight: 1.55,
                     }}
                   >
-                    <span style={{ color: "var(--color-accent)", flexShrink: 0 }}>•</span>
+                    <span style={{ color: SENSO_TEXT, flexShrink: 0, marginTop: 2 }}>•</span>
                     <div>
                       <span>{ins.insight}</span>
                       {ins.sourceCount > 0 && (
@@ -126,47 +184,83 @@ export function SensoIntelligencePanel() {
           )}
 
           {/* Ask anything */}
-          <div style={{ padding: "var(--space-4)" }}>
-            <h3 style={sectionTitle}>🔍 Ask Your Knowledge Base</h3>
+          <div style={{ padding: "var(--space-4) var(--space-5)" }}>
+            <h3 style={sectionTitle}>Ask Your Knowledge Base</h3>
 
             <form onSubmit={handleSearch} style={{ display: "flex", gap: "var(--space-2)" }}>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask anything about this codebase..."
-                style={{
-                  flex: 1,
-                  background: "var(--bg-input)",
-                  border: "1px solid var(--border-hover)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "10px 14px",
-                  fontFamily: "var(--font-code)",
-                  fontSize: "var(--text-small)",
-                  color: "var(--text-primary)",
-                  outline: "none",
-                }}
-                onFocus={(e) => { e.target.style.borderColor = "var(--color-accent)"; }}
-                onBlur={(e) => { e.target.style.borderColor = "var(--border-hover)"; }}
-              />
+              {/* Query input — purple theme */}
+              <div style={{ flex: 1, position: "relative" }}>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Ask anything about this codebase..."
+                  style={{
+                    width: "100%",
+                    height: 44,
+                    background: "rgba(147, 51, 234, 0.08)",
+                    border: `1px solid ${SENSO_BORDER}`,
+                    borderRadius: "var(--radius-md)",
+                    padding: "0 16px",
+                    fontFamily: "var(--font-code)",
+                    fontSize: "var(--text-small)",
+                    color: "var(--text-primary)",
+                    outline: "none",
+                    caretColor: SENSO_ACCENT,
+                    transition: "border-color 0.2s ease, box-shadow 0.2s ease",
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = "rgba(147, 51, 234, 0.5)";
+                    e.target.style.boxShadow = "0 0 0 3px rgba(147, 51, 234, 0.12)";
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = SENSO_BORDER;
+                    e.target.style.boxShadow = "none";
+                  }}
+                />
+              </div>
+
+              {/* Submit button — purple */}
               <button
                 type="submit"
                 disabled={loading || !query.trim()}
                 style={{
-                  background: loading ? "var(--color-accent-dim)" : "var(--color-accent)",
-                  color: "white",
-                  border: "none",
+                  width: 44,
+                  height: 44,
+                  background: loading || !query.trim() ? "rgba(147, 51, 234, 0.1)" : "rgba(147, 51, 234, 0.2)",
+                  border: `1px solid ${loading || !query.trim() ? "rgba(147, 51, 234, 0.15)" : "rgba(147, 51, 234, 0.4)"}`,
                   borderRadius: "var(--radius-md)",
-                  padding: "10px 16px",
+                  color: loading || !query.trim() ? "rgba(216, 180, 254, 0.4)" : SENSO_TEXT,
                   cursor: loading || !query.trim() ? "not-allowed" : "pointer",
-                  fontSize: "var(--text-small)",
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
+                  justifyContent: "center",
                   flexShrink: 0,
+                  transition: "all 0.2s ease",
+                  fontSize: "var(--text-body)",
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading && query.trim()) {
+                    (e.currentTarget as HTMLElement).style.background = "rgba(147, 51, 234, 0.3)";
+                    (e.currentTarget as HTMLElement).style.transform = "scale(1.05)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "rgba(147, 51, 234, 0.2)";
+                  (e.currentTarget as HTMLElement).style.transform = "scale(1)";
                 }}
               >
                 {loading ? (
-                  <span style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", display: "inline-block" }} className="animate-spin" />
+                  <span
+                    style={{
+                      width: 14,
+                      height: 14,
+                      border: "2px solid rgba(216,180,254,0.3)",
+                      borderTopColor: SENSO_TEXT,
+                      borderRadius: "50%",
+                      display: "inline-block",
+                    }}
+                    className="animate-spin"
+                  />
                 ) : "→"}
               </button>
             </form>
@@ -179,17 +273,24 @@ export function SensoIntelligencePanel() {
                     key={q}
                     onClick={() => setQuery(q)}
                     style={{
-                      background: "var(--bg-surface-raised)",
-                      border: "1px solid var(--border-default)",
+                      background: SENSO_PURPLE,
+                      border: `1px solid ${SENSO_BORDER}`,
                       borderRadius: "var(--radius-full)",
-                      padding: "4px 10px",
+                      padding: "4px 11px",
                       fontSize: "var(--text-micro)",
                       color: "var(--text-tertiary)",
                       cursor: "pointer",
                       fontFamily: "var(--font-code)",
+                      transition: "all 0.15s ease",
                     }}
-                    onMouseEnter={(e) => { (e.target as HTMLElement).style.color = "var(--text-secondary)"; }}
-                    onMouseLeave={(e) => { (e.target as HTMLElement).style.color = "var(--text-tertiary)"; }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.borderColor = "rgba(147, 51, 234, 0.35)";
+                      (e.currentTarget as HTMLElement).style.color = SENSO_TEXT;
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.borderColor = SENSO_BORDER;
+                      (e.currentTarget as HTMLElement).style.color = "var(--text-tertiary)";
+                    }}
                   >
                     {q}
                   </button>
@@ -197,28 +298,79 @@ export function SensoIntelligencePanel() {
               </div>
             )}
 
-            {/* Search error */}
+            {/* Error */}
             {searchError && (
-              <div style={{ marginTop: "var(--space-3)", padding: "var(--space-3)", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "var(--radius-md)", fontSize: "var(--text-small)", color: "var(--color-critical)" }}>
+              <div
+                style={{
+                  marginTop: "var(--space-3)",
+                  padding: "var(--space-3)",
+                  background: "var(--color-critical-dim)",
+                  border: "1px solid var(--color-critical-border)",
+                  borderRadius: "var(--radius-md)",
+                  fontSize: "var(--text-small)",
+                  color: "var(--color-critical-text)",
+                }}
+              >
                 {searchError}
               </div>
             )}
 
-            {/* Search results */}
+            {/* Answer */}
             {searchResult && (
-              <div style={{ marginTop: "var(--space-4)", display: "flex", flexDirection: "column", gap: "var(--space-4)" }} className="animate-slide-up">
-                <div>
-                  <h4 style={{ ...sectionTitle, marginBottom: "var(--space-2)" }}>ANSWER</h4>
-                  <div style={{ background: "var(--bg-surface-raised)", borderRadius: "var(--radius-md)", padding: "var(--space-4)", fontSize: "var(--text-small)", color: "var(--text-primary)", lineHeight: 1.7 }}>
-                    {searchResult.answer}
+              <div
+                style={{
+                  marginTop: "var(--space-4)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--space-4)",
+                  animation: "fade-in 0.4s ease-out",
+                }}
+              >
+                {/* Answer card */}
+                <div
+                  style={{
+                    padding: "var(--space-4)",
+                    background: SENSO_PURPLE,
+                    border: `1px solid ${SENSO_BORDER}`,
+                    borderLeft: `3px solid ${SENSO_ACCENT}`,
+                    borderRadius: "var(--radius-md)",
+                    fontSize: "var(--text-small)",
+                    color: "var(--text-primary)",
+                    lineHeight: 1.7,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "var(--text-micro)",
+                      fontWeight: 600,
+                      color: SENSO_TEXT,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
+                      fontFamily: "var(--font-code)",
+                      marginBottom: "var(--space-2)",
+                    }}
+                  >
+                    Answer
                   </div>
+                  {searchResult.answer}
                 </div>
 
+                {/* Sources */}
                 {searchResult.sources.length > 0 && (
                   <div>
-                    <h4 style={{ ...sectionTitle, marginBottom: "var(--space-2)" }}>
-                      SOURCES ({searchResult.totalResults} found · {searchResult.processingTimeMs}ms)
-                    </h4>
+                    <div
+                      style={{
+                        fontSize: "var(--text-micro)",
+                        fontWeight: 600,
+                        color: "var(--text-tertiary)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.1em",
+                        fontFamily: "var(--font-code)",
+                        marginBottom: "var(--space-2)",
+                      }}
+                    >
+                      Sources ({searchResult.totalResults} found · {searchResult.processingTimeMs}ms)
+                    </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
                       {searchResult.sources.map((src, i) => (
                         <div
@@ -227,18 +379,39 @@ export function SensoIntelligencePanel() {
                             display: "flex",
                             alignItems: "flex-start",
                             gap: "var(--space-3)",
-                            padding: "var(--space-3)",
-                            background: "var(--bg-input)",
+                            padding: "var(--space-3) var(--space-4)",
+                            background: "rgba(9, 9, 11, 0.6)",
                             borderRadius: "var(--radius-md)",
-                            border: "1px solid var(--border-default)",
+                            border: "1px solid var(--border-subtle)",
                           }}
                         >
-                          <span style={{ fontSize: "var(--text-micro)", fontFamily: "var(--font-code)", color: "var(--color-accent)", flexShrink: 0 }}>
+                          <span
+                            style={{
+                              fontSize: "var(--text-micro)",
+                              fontFamily: "var(--font-code)",
+                              color: SENSO_TEXT,
+                              flexShrink: 0,
+                              fontWeight: 600,
+                            }}
+                          >
                             {(src.score * 100).toFixed(0)}%
                           </span>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: "var(--text-small)", color: "var(--text-primary)", fontWeight: 500, marginBottom: 2 }}>{src.title}</div>
-                            <div style={{ fontSize: "var(--text-micro)", color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                            <div style={{ fontSize: "var(--text-small)", color: "var(--text-primary)", fontWeight: 500, marginBottom: 3 }}>
+                              {src.title}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "var(--text-micro)",
+                                color: "var(--text-tertiary)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                lineHeight: 1.5,
+                              }}
+                            >
                               {src.chunkText}
                             </div>
                           </div>
@@ -250,7 +423,20 @@ export function SensoIntelligencePanel() {
 
                 <button
                   onClick={() => { setSearchResult(null); setQuery(""); }}
-                  style={{ alignSelf: "flex-start", background: "transparent", border: "1px solid var(--border-default)", borderRadius: "var(--radius-sm)", padding: "4px 10px", fontSize: "var(--text-micro)", color: "var(--text-tertiary)", cursor: "pointer" }}
+                  style={{
+                    alignSelf: "flex-start",
+                    background: "transparent",
+                    border: `1px solid ${SENSO_BORDER}`,
+                    borderRadius: "var(--radius-sm)",
+                    padding: "4px 10px",
+                    fontSize: "var(--text-micro)",
+                    color: "var(--text-tertiary)",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-code)",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = SENSO_TEXT; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = "var(--text-tertiary)"; }}
                 >
                   ✕ Clear
                 </button>
@@ -264,11 +450,11 @@ export function SensoIntelligencePanel() {
 }
 
 const sectionTitle: React.CSSProperties = {
-  fontSize: "var(--text-small)",
+  fontSize: "var(--text-micro)",
   fontFamily: "var(--font-code)",
   fontWeight: 600,
-  color: "var(--text-secondary)",
+  color: "#D8B4FE",
   textTransform: "uppercase",
-  letterSpacing: "0.08em",
+  letterSpacing: "0.1em",
   margin: "0 0 var(--space-3)",
 };

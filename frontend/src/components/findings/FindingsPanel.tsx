@@ -5,46 +5,136 @@ import { severityColor } from "@/lib/colors";
 import type { Finding, Severity } from "@/types/shared";
 
 const SEVERITY_ORDER: Severity[] = ["critical", "warning", "info"];
+
 const LABELS: Record<Severity, string> = { critical: "Critical", warning: "Warning", info: "Info" };
-const ICONS:  Record<Severity, string> = { critical: "🔴", warning: "🟡", info: "ℹ️" };
+
+function SeverityIcon({ severity }: { severity: Severity }) {
+  if (severity === "critical") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <circle cx="6" cy="6" r="5.5" fill="rgba(239,68,68,0.2)" stroke="#EF4444" strokeWidth="1"/>
+        <line x1="4" y1="4" x2="8" y2="8" stroke="#EF4444" strokeWidth="1.2" strokeLinecap="round"/>
+        <line x1="8" y1="4" x2="4" y2="8" stroke="#EF4444" strokeWidth="1.2" strokeLinecap="round"/>
+      </svg>
+    );
+  }
+  if (severity === "warning") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M6 1.5L11 10.5H1L6 1.5Z" fill="rgba(245,158,11,0.2)" stroke="#F59E0B" strokeWidth="1"/>
+        <line x1="6" y1="5" x2="6" y2="7.5" stroke="#F59E0B" strokeWidth="1.2" strokeLinecap="round"/>
+        <circle cx="6" cy="9" r="0.55" fill="#F59E0B"/>
+      </svg>
+    );
+  }
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <circle cx="6" cy="6" r="5.5" fill="rgba(113,113,122,0.15)" stroke="#52525B" strokeWidth="1"/>
+      <line x1="6" y1="4" x2="6" y2="6.5" stroke="#71717A" strokeWidth="1.2" strokeLinecap="round"/>
+      <circle cx="6" cy="8.5" r="0.55" fill="#71717A"/>
+    </svg>
+  );
+}
 
 function FindingRow({ finding }: { finding: Finding }) {
-  const { selectFinding, selectedFindingId } = useAnalysisStore();
+  const { selectFinding, selectNode, selectedFindingId } = useAnalysisStore();
   const isSelected = selectedFindingId === finding.id;
+  const [hovered, setHovered] = useState(false);
+
+  function handleShowInGraph(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (finding.location?.primaryFile) {
+      // Find node ID by file path — best effort
+      selectNode(finding.location.primaryFile);
+    }
+  }
 
   return (
     <button
       onClick={() => selectFinding(isSelected ? null : finding.id)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         width: "100%",
         textAlign: "left",
-        background: isSelected ? "var(--bg-surface-hover)" : "transparent",
+        background: isSelected ? "rgba(59,130,246,0.06)" : hovered ? "rgba(255,255,255,0.03)" : "transparent",
         border: "none",
-        borderLeft: `3px solid ${isSelected ? severityColor(finding.severity) : "transparent"}`,
-        padding: "10px var(--space-4)",
+        borderLeft: `3px solid ${isSelected ? severityColor(finding.severity) : hovered ? `${severityColor(finding.severity)}55` : "transparent"}`,
+        padding: "11px var(--space-4)",
         cursor: "pointer",
-        transition: "background 0.15s ease",
+        transition: "background 0.12s ease, border-left-color 0.15s ease",
+        position: "relative",
       }}
-      onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "var(--bg-surface-raised)"; }}
-      onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--space-3)" }}>
         <span style={{ fontSize: "var(--text-small)", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.4 }}>
           {finding.title}
         </span>
-        {finding.chainIds.length > 0 && (
-          <span style={{ fontSize: "var(--text-micro)", color: "var(--color-accent)", flexShrink: 0 }}>
-            ⛓ {finding.chainIds.length}
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexShrink: 0 }}>
+          {finding.chainIds.length > 0 && (
+            <span
+              style={{
+                fontSize: "var(--text-micro)",
+                color: "var(--color-accent-text)",
+                background: "var(--color-accent-dim)",
+                border: "1px solid var(--color-accent-border)",
+                borderRadius: 3,
+                padding: "1px 6px",
+                fontFamily: "var(--font-code)",
+                animation: finding.severity === "critical" ? "chain-pulse 1.5s ease-in-out infinite" : undefined,
+              }}
+            >
+              ⛓ {finding.chainIds.length}
+            </span>
+          )}
+        </div>
       </div>
-      <div style={{ marginTop: 4, display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
-        <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-micro)", color: "var(--text-tertiary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <div style={{ marginTop: 4, display: "flex", gap: "var(--space-3)", alignItems: "center", justifyContent: "space-between" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-code)",
+            fontSize: "var(--text-micro)",
+            color: "var(--text-tertiary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            maxWidth: "60%",
+          }}
+        >
           {finding.location.primaryFile}
         </span>
-        <span style={{ fontSize: "var(--text-micro)", color: "var(--text-tertiary)", flexShrink: 0 }}>
-          {finding.blastRadius.filesAffected} files
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexShrink: 0 }}>
+          <span style={{ fontSize: "var(--text-micro)", color: "var(--text-quaternary)" }}>
+            {finding.blastRadius.filesAffected} files
+          </span>
+          {/* Show in graph button — reveals on hover */}
+          <button
+            onClick={handleShowInGraph}
+            style={{
+              background: "rgba(59,130,246,0.1)",
+              border: "1px solid var(--color-accent-border)",
+              borderRadius: "var(--radius-sm)",
+              padding: "2px 7px",
+              fontSize: "var(--text-micro)",
+              color: "var(--color-accent-text)",
+              fontFamily: "var(--font-code)",
+              cursor: "pointer",
+              opacity: hovered ? 1 : 0,
+              transform: hovered ? "translateX(0)" : "translateX(4px)",
+              transition: "opacity 0.15s ease, transform 0.15s ease",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 3,
+              lineHeight: 1,
+            }}
+          >
+            <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="3" cy="3" r="2"/><circle cx="9" cy="3" r="2"/><circle cx="6" cy="9" r="2"/>
+              <line x1="3" y1="5" x2="6" y2="7"/><line x1="9" y1="5" x2="6" y2="7"/>
+            </svg>
+            Graph
+          </button>
+        </div>
       </div>
     </button>
   );
@@ -55,7 +145,6 @@ export function FindingsPanel() {
   const [open, setOpen] = useState<Record<Severity, boolean>>({ critical: true, warning: false, info: false });
 
   const summary = result?.findings;
-
   const grouped = SEVERITY_ORDER.reduce<Record<Severity, Finding[]>>(
     (acc, sev) => { acc[sev] = findings.filter((f) => f.severity === sev); return acc; },
     { critical: [], warning: [], info: [] }
@@ -64,19 +153,56 @@ export function FindingsPanel() {
   return (
     <div
       style={{
-        background: "var(--bg-surface)",
+        background: "rgba(17, 17, 22, 0.72)",
+        backdropFilter: "blur(12px) saturate(1.4)",
+        WebkitBackdropFilter: "blur(12px) saturate(1.4)",
         border: "1px solid var(--border-default)",
         borderRadius: "var(--radius-lg)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
+        boxShadow: "var(--shadow-panel)",
       }}
     >
       {/* Header */}
-      <div style={{ padding: "var(--space-4)", borderBottom: "1px solid var(--border-default)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2 style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-small)", color: "var(--text-secondary)", margin: 0, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-          FINDINGS {summary ? `(${summary.total})` : ""}
+      <div
+        style={{
+          padding: "14px var(--space-4)",
+          borderBottom: "1px solid var(--border-subtle)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <h2
+          style={{
+            fontFamily: "var(--font-code)",
+            fontSize: "var(--text-micro)",
+            color: "var(--text-tertiary)",
+            margin: 0,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            fontWeight: 600,
+          }}
+        >
+          FINDINGS{summary ? ` (${summary.total})` : ""}
         </h2>
+        {summary && summary.critical > 0 && (
+          <span
+            style={{
+              fontSize: "var(--text-micro)",
+              color: "var(--color-critical-text)",
+              fontFamily: "var(--font-code)",
+              background: "var(--color-critical-dim)",
+              border: "1px solid var(--color-critical-border)",
+              borderRadius: "var(--radius-full)",
+              padding: "1px 8px",
+              animation: "badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+            }}
+          >
+            {summary.critical} critical
+          </span>
+        )}
       </div>
 
       {/* Severity groups */}
@@ -84,9 +210,10 @@ export function FindingsPanel() {
         const list = grouped[sev];
         const count = summary ? summary[sev] : list.length;
         const isOpen = open[sev];
+        const color = severityColor(sev);
 
         return (
-          <div key={sev} style={{ borderBottom: "1px solid var(--border-default)" }}>
+          <div key={sev} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
             <button
               onClick={() => setOpen((o) => ({ ...o, [sev]: !o[sev] }))}
               style={{
@@ -94,31 +221,44 @@ export function FindingsPanel() {
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                padding: "var(--space-3) var(--space-4)",
+                padding: "10px var(--space-4)",
                 background: "transparent",
                 border: "none",
                 cursor: "pointer",
                 color: "var(--text-primary)",
+                transition: "background 0.12s ease",
               }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.02)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
             >
               <span style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--text-small)", fontWeight: 600 }}>
-                <span>{ICONS[sev]}</span>
-                <span>{LABELS[sev]}</span>
+                <SeverityIcon severity={sev} />
+                <span style={{ color: "var(--text-secondary)" }}>{LABELS[sev]}</span>
                 <span
                   style={{
                     fontFamily: "var(--font-code)",
                     fontSize: "var(--text-micro)",
-                    color: severityColor(sev),
-                    background: "rgba(0,0,0,0.3)",
-                    padding: "1px 6px",
+                    color,
+                    background: `${color}15`,
+                    padding: "1px 7px",
                     borderRadius: "var(--radius-full)",
-                    border: `1px solid ${severityColor(sev)}44`,
+                    border: `1px solid ${color}33`,
                   }}
                 >
                   {count}
                 </span>
               </span>
-              <span style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{isOpen ? "▾" : "▸"}</span>
+              <span
+                style={{
+                  color: "var(--text-tertiary)",
+                  fontSize: 11,
+                  transition: "transform 0.2s ease",
+                  transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+                  display: "inline-block",
+                }}
+              >
+                ▸
+              </span>
             </button>
 
             {isOpen && (

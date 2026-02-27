@@ -75,7 +75,7 @@ export function useAnalysisWebSocket(analysisId: string | null) {
           retriesRef.current++;
           setTimeout(connect, delay);
         } else {
-          startPolling(analysisId);
+          if (analysisId) startPolling(analysisId);
         }
       };
 
