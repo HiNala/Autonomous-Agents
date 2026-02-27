@@ -541,3 +541,100 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   LAYOUT GRIDS
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Dashboard (completed analysis) ─── */
+.dashboard-grid {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.dashboard-full-row {
+  width: 100%;
+}
+
+/* Score row: hero card (narrow) + breakdown (wide) */
+.dashboard-score-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* Main content row: graph (wide) + findings (narrow) */
+.dashboard-main-row {
+  display: grid;
+  grid-template-columns: 60% 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* ── Analysis Progress (scanning) ─── */
+.progress-grid {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: var(--space-5);
+  padding: var(--space-6);
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.progress-left  { display: flex; flex-direction: column; }
+.progress-right { min-height: 520px; }
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+   ═══════════════════════════════════════════════════════════ */
+
+/* Large tablet: collapse to single column for score row */
+@media (max-width: 1100px) {
+  .dashboard-score-row {
+    grid-template-columns: 200px 1fr;
+  }
+  .dashboard-main-row {
+    grid-template-columns: 55% 1fr;
+  }
+  .progress-grid {
+    grid-template-columns: 340px 1fr;
+  }
+}
+
+/* Tablet */
+@media (max-width: 900px) {
+  .dashboard-score-row {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-main-row {
+    grid-template-columns: 1fr;
+  }
+  .progress-grid {
+    grid-template-columns: 1fr;
+  }
+  .progress-right {
+    min-height: 360px;
+  }
+  .dashboard-grid,
+  .progress-grid {
+    padding: var(--space-4);
+    gap: var(--space-4);
+  }
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  .dashboard-grid,
+  .progress-grid {
+    padding: var(--space-3);
+    gap: var(--space-3);
+  }
+  .progress-right {
+    min-height: 280px;
+  }
+}
