@@ -5,17 +5,24 @@ import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.database import async_session
 from app.models import Analysis, AnalysisStatus
 from app.routers.ws import manager
+from app.clients.github_client import fetch_repo_metadata
+from app.clients.tavily_client import search_repo_context
+from app.clients.fastino import classify_text
+from app.clients.neo4j_client import Neo4jClient
+from app.llm.provider import get_reasoning_provider
 
 from .base import BaseAgent
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class OrchestratorAgent(BaseAgent):
@@ -78,6 +85,7 @@ class OrchestratorAgent(BaseAgent):
             message="Computing basic repository statistics...",
         )
         stats = await self._compute_basic_stats(clone_dir)
+        # Ensure stats dict exists so we can enrich it in later stages.
         self.analysis.stats = stats
         self.analysis.detected_stack = {
             "languages": stats.get("languages", []),
@@ -85,6 +93,112 @@ class OrchestratorAgent(BaseAgent):
             "packageManager": "",
             "buildSystem": "",
         }
+
+        # 3. GitHub metadata ingestion
+        self.analysis.status = AnalysisStatus.ANALYZING
+        await self._broadcast_status(
+            stage="github_metadata",
+            progress=0.5,
+            message="Fetching GitHub repository metadata...",
+        )
+        try:
+            github_meta = await fetch_repo_metadata(self.analysis.repo_url)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("GitHub metadata ingestion failed: %s", exc)
+            github_meta = {}
+
+        enriched_stats: Dict[str, Any] = dict(self.analysis.stats or {})
+        enriched_stats["github"] = github_meta
+
+        # 4. Tavily enrichment (CVE + deps + related projects)
+        await self._broadcast_status(
+            stage="tavily_enrichment",
+            progress=0.6,
+            message="Running Tavily enrichment (CVE + dependencies)...",
+        )
+        try:
+            tavily_data = await search_repo_context(self.analysis.repo_url)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Tavily enrichment failed: %s", exc)
+            tavily_data = {}
+        enriched_stats["tavily"] = tavily_data
+
+        # 5. Fastino quick scoring (high-level risk signal)
+        await self._broadcast_status(
+            stage="fastino_scoring",
+            progress=0.7,
+            message="Computing quick risk score with Fastino...",
+        )
+        quick_context = (
+            f"Repo: {self.analysis.repo_name}\n"
+            f"Languages: {', '.join(stats.get('languages', []))}\n"
+            f"Total files: {stats.get('total_files')}\n"
+            f"Total lines: {stats.get('total_lines')}\n"
+            f"GitHub: {github_meta.get('repo', {})}\n"
+            f"Tavily summary: {tavily_data.get('answer') if isinstance(tavily_data, dict) else ''}\n"
+        )
+        fastino_quick = {}
+        try:
+            fastino_quick = await classify_text(
+                quick_context,
+                ["healthy", "needs_attention", "high_risk"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Fastino quick scoring failed: %s", exc)
+        enriched_stats["fastinoQuickScore"] = fastino_quick
+
+        # 6. Yutori (primary) / OpenAI (backup) deep reasoning
+        await self._broadcast_status(
+            stage="deep_reasoning",
+            progress=0.8,
+            message="Running deep reasoning (Yutori/OpenAI)...",
+        )
+        deep_summary = ""
+        try:
+            provider = get_reasoning_provider()
+            system_prompt = (
+                "You are a senior engineering manager performing a holistic review of "
+                "a GitHub repository. Analyze architecture, maintainability, bus "
+                "factor, and security posture. Write a concise multi-paragraph "
+                "summary suitable for a technical stakeholder."
+            )
+            user_prompt = (
+                f"Repository URL: {self.analysis.repo_url}\n"
+                f"Basic stats: {stats}\n"
+                f"GitHub metadata: {github_meta}\n"
+                f"Tavily enrichment: {tavily_data}\n"
+                f"Fastino quick score: {fastino_quick}\n"
+            )
+            deep_summary = await provider.reason(system_prompt, user_prompt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Deep reasoning step failed: %s", exc)
+        enriched_stats["yutoriDeepAnalysis"] = {"summary": deep_summary}
+
+        # 7. Neo4j contributor + language graph (optional)
+        await self._broadcast_status(
+            stage="neo4j_graph",
+            progress=0.9,
+            message="Updating Neo4j contributor + language graph...",
+        )
+        neo4j_status: Dict[str, Any] = {}
+        try:
+            if settings.neo4j_uri and settings.neo4j_password:
+                async with Neo4jClient() as neo:
+                    await neo.write_repo_graph(
+                        repo_url=self.analysis.repo_url,
+                        repo_name=self.analysis.repo_name,
+                        branch=self.analysis.branch,
+                        languages=stats.get("languages", []),
+                        contributors=github_meta.get("contributors", []),
+                    )
+                neo4j_status = {"status": "ok"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Neo4j graph update failed: %s", exc)
+            neo4j_status = {"status": "error", "message": str(exc)}
+        enriched_stats["neo4j"] = neo4j_status
+
+        # Persist enriched stats
+        self.analysis.stats = enriched_stats
 
         # 3. Mark analysis as completed
         self.analysis.status = AnalysisStatus.COMPLETED
