@@ -1,7 +1,17 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 from typing import Optional
 from datetime import datetime
 from enum import Enum
+
+
+class CamelModel(BaseModel):
+    """Base model that auto-generates camelCase aliases for all fields."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
 
 
 class AnalysisStatusEnum(str, Enum):
@@ -20,7 +30,7 @@ class Severity(str, Enum):
     info = "info"
 
 
-class AnalyzeRequest(BaseModel):
+class AnalyzeRequest(CamelModel):
     repo_url: str
     branch: Optional[str] = None
     scope: Optional[str] = "full"
@@ -28,7 +38,7 @@ class AnalyzeRequest(BaseModel):
     use_senso_intelligence: Optional[bool] = True
 
 
-class AnalyzeResponse(BaseModel):
+class AnalyzeResponse(CamelModel):
     analysis_id: str
     status: str
     repo_name: str
@@ -36,14 +46,14 @@ class AnalyzeResponse(BaseModel):
     websocket_url: str
 
 
-class DetectedStack(BaseModel):
+class DetectedStack(CamelModel):
     languages: list[str] = []
     frameworks: list[str] = []
     package_manager: str = ""
     build_system: str = ""
 
 
-class RepoStats(BaseModel):
+class RepoStats(CamelModel):
     total_files: int = 0
     total_lines: int = 0
     total_dependencies: int = 0
@@ -52,33 +62,33 @@ class RepoStats(BaseModel):
     total_endpoints: int = 0
 
 
-class CategoryScore(BaseModel):
+class CategoryScore(CamelModel):
     score: int
     max: int = 10
     status: str
 
 
-class HealthScore(BaseModel):
+class HealthScore(CamelModel):
     overall: int
     letter_grade: str
     breakdown: dict[str, CategoryScore] = {}
     confidence: float = 0.0
 
 
-class FindingsSummary(BaseModel):
+class FindingsSummary(CamelModel):
     critical: int = 0
     warning: int = 0
     info: int = 0
     total: int = 0
 
 
-class Timestamps(BaseModel):
+class Timestamps(CamelModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     duration: Optional[int] = None
 
 
-class AnalysisResult(BaseModel):
+class AnalysisResult(CamelModel):
     analysis_id: str
     status: AnalysisStatusEnum
     repo_url: str
@@ -93,17 +103,18 @@ class AnalysisResult(BaseModel):
     timestamps: Timestamps = Timestamps()
 
 
-class HealthResponse(BaseModel):
+class HealthResponse(CamelModel):
     status: str
     service: str
     version: str
+    database: str = "unknown"
 
 
-class ErrorDetail(BaseModel):
+class ErrorDetail(CamelModel):
     code: str
     message: str
     details: Optional[dict] = None
 
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(CamelModel):
     error: ErrorDetail
