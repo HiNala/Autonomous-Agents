@@ -1,19 +1,10 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
 import cytoscape from "cytoscape";
-// @ts-expect-error no types
-import dagre from "cytoscape-dagre";
-// @ts-expect-error no types
-import coseBilkent from "cytoscape-cose-bilkent";
 import type { GraphNode, GraphEdge, GraphViewMode } from "@/types/shared";
 
-let registered = false;
 function ensureRegistered() {
-  if (!registered) {
-    cytoscape.use(dagre);
-    cytoscape.use(coseBilkent);
-    registered = true;
-  }
+  // Using Cytoscape built-in layouts only (no external extensions)
 }
 
 const NODE_TYPE_COLOR: Record<string, string> = {
@@ -44,10 +35,9 @@ function nodeSize(findingCount: number): number {
 function layoutForView(view: GraphViewMode): cytoscape.LayoutOptions {
   if (view === "structure") {
     return {
-      name: "dagre",
-      rankDir: "TB",
-      nodeSep: 28,
-      rankSep: 55,
+      name: "breadthfirst",
+      directed: true,
+      spacingFactor: 1.5,
       animate: true,
       animationDuration: 450,
       fit: true,
@@ -56,7 +46,7 @@ function layoutForView(view: GraphViewMode): cytoscape.LayoutOptions {
   }
   if (view === "dependencies") {
     return {
-      name: "cose-bilkent",
+      name: "cose",
       animate: true,
       animationDuration: 500,
       randomize: false,
@@ -68,7 +58,7 @@ function layoutForView(view: GraphViewMode): cytoscape.LayoutOptions {
     } as cytoscape.LayoutOptions;
   }
   return {
-    name: "cose-bilkent",
+    name: "cose",
     animate: true,
     animationDuration: 500,
     randomize: false,
