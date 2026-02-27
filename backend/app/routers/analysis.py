@@ -1,8 +1,11 @@
+import asyncio
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents.orchestrator import run_orchestrator
 from app.database import get_db
 from app.models import Analysis, AnalysisStatus
 from app.schemas import (
@@ -40,6 +43,9 @@ async def start_analysis(request: AnalyzeRequest, db: AsyncSession = Depends(get
     )
     db.add(analysis)
     await db.commit()
+
+    # Kick off background analysis via orchestrator
+    asyncio.create_task(run_orchestrator(analysis_id))
 
     return AnalyzeResponse(
         analysis_id=analysis_id,

@@ -98,7 +98,7 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
 | LLM (Backup) | OpenAI GPT-4o | `pip install openai` async client |
 | Web Search | Tavily API | `pip install tavily-python` |
 | Knowledge Base | Senso Context OS | `httpx` async HTTP client |
-| State | SQLite via `aiosqlite` | Async SQLite, analysis records |
+| State | PostgreSQL via SQLAlchemy (async) | Central analysis store managed via Alembic migrations |
 | Repo Storage | Local `/tmp` directory | Cloned repos via `asyncio.create_subprocess_exec` |
 | Real-time | FastAPI WebSockets | Built-in via Starlette, no extra deps |
 | Parsing | Tree-sitter + `ast` module | Code structure extraction |
@@ -117,7 +117,7 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
 | Frontend | Next.js, localhost:3000 | Vercel |
 | Graph DB | Neo4j AuraDB Free (cloud) or Desktop | Same |
 | Repo Storage | Local `/tmp/vibe-check/repos/` | S3 bucket |
-| State/DB | SQLite via aiosqlite | DynamoDB via aioboto3 |
+| State/DB | PostgreSQL via SQLAlchemy (async) | DynamoDB via aioboto3 |
 | Agent Execution | asyncio.gather in-process | Lambda per agent |
 
 ### Environment Variables
@@ -309,113 +309,213 @@ During the demo, the terminal/dashboard will show:
 
 ## 4. AGENT SPECIFICATIONS
 
-All agents are async Python classes that receive a shared `AnalysisContext` and emit events via a `WebSocketBroadcaster`.
+> **Implementation note (current state):**  
+> The production backend currently implements a **minimal `OrchestratorAgent`** that clones the repository, computes basic repository statistics, and streams status updates over WebSocket.  
+> The additional agents described below (Mapper, Quality, Pattern, Security, Doctor, Senso Knowledge) are **planned/roadmap** components and not yet wired into the running service.
 
 ### Base Agent Pattern
 
 ```python
 # app/agents/base.py
 from abc import ABC, abstractmethod
-from app.models.analysis import AnalysisContext
-from app.ws.broadcaster import WebSocketBroadcaster
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.models import Analysis
+
 
 class BaseAgent(ABC):
-    name: str
-    provider: str  # "fastino" | "openai" | "tavily" | "senso"
+    """Minimal base class for async analysis agents."""
 
-    def __init__(self, ctx: AnalysisContext, ws: WebSocketBroadcaster):
-        self.ctx = ctx
-        self.ws = ws
+    name: str = "agent"
+    provider: str | None = None
+
+    def __init__(self, db: AsyncSession, analysis: Analysis) -> None:
+        self.db = db
+        self.analysis = analysis
 
     async def run(self) -> None:
-        await self.ws.send_status(self.name, "running", 0.0, f"{self.name} starting...")
+        await self.on_start()
         try:
             await self.execute()
-            await self.ws.send_agent_complete(self.name, self.findings_count, self.provider)
-        except Exception as e:
-            await self.ws.send_error(self.name, str(e), recoverable=False)
+            await self.on_complete()
+        except Exception as exc:
+            await self.on_error(exc)
             raise
 
+    async def on_start(self) -> None:
+        """Optional hook for startup logic (e.g. websocket notifications)."""
+
+    async def on_complete(self) -> None:
+        """Optional hook for successful completion logic."""
+
+    async def on_error(self, error: Exception) -> None:
+        """Optional hook for error handling."""
+
     @abstractmethod
-    async def execute(self) -> None: ...
-```
+    async def execute(self) -> None:
+        """Agent-specific implementation."""
+        raise NotImplementedError
 
 ### Agent 1: ORCHESTRATOR
 
-**Input:** GitHub URL
-**Output:** Dispatches all agents, aggregates results, computes Health Score
-**Sequence:** Clone → Detect Stack → Mapper → [Quality, Pattern, Security] parallel → Doctor → Senso Agent
+**Input:** GitHub URL  
+**Output (current implementation):** Clone repo, compute basic repository stats, update `Analysis` row, stream status updates over WebSocket.  
+**Output (planned):** Dispatch all agents, aggregate results, compute Health Score.
 
 ```python
 # app/agents/orchestrator.py
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
 import asyncio
-import subprocess
+import logging
+import tempfile
+from sqlalchemy import select
+
+from app.database import async_session
+from app.models import Analysis, AnalysisStatus
+from app.routers.ws import manager
+from app.agents.base import BaseAgent
+
 
 class OrchestratorAgent(BaseAgent):
     name = "orchestrator"
-    provider = "fastino"
+    provider = "local"
 
-    async def execute(self):
+    async def on_start(self) -> None:
+        await self._broadcast_status("starting", 0.0, "Orchestrator starting...")
+
+    async def on_complete(self) -> None:
+        await self._broadcast_status("completed", 1.0, "Analysis completed.")
+
+    async def on_error(self, error: Exception) -> None:
+        self.analysis.status = AnalysisStatus.FAILED
+        await self.db.commit()
+        await self._broadcast_status("failed", 1.0, f"Analysis failed: {error}")
+
+    async def execute(self) -> None:
+        start_time = datetime.now(timezone.utc)
+
         # 1. Clone repo
-        await self.ws.send_status("orchestrator", "running", 0.1, "Cloning repository...")
-        clone_dir = await self._clone_repo(self.ctx.repo_url, self.ctx.branch)
-        self.ctx.clone_dir = clone_dir
+        self.analysis.status = AnalysisStatus.CLONING
+        await self.db.commit()
+        await self._broadcast_status("cloning", 0.1, "Cloning repository...")
+        clone_dir = await self._clone_repo(
+            repo_url=self.analysis.repo_url,
+            branch=self.analysis.branch,
+            analysis_id=self.analysis.analysis_id,
+        )
+        self.analysis.clone_dir = str(clone_dir)
 
-        # 2. Detect stack via Fastino
-        await self.ws.send_status("orchestrator", "running", 0.3, "Detecting tech stack...")
-        self.ctx.detected_stack = await self._detect_stack(clone_dir)
+        # 2. Compute basic repo stats
+        self.analysis.status = AnalysisStatus.MAPPING
+        await self._broadcast_status("mapping", 0.4, "Computing basic repository statistics...")
+        stats = await self._compute_basic_stats(clone_dir)
+        self.analysis.stats = stats
+        self.analysis.detected_stack = {
+            "languages": stats.get("languages", []),
+            "frameworks": [],
+            "packageManager": "",
+            "buildSystem": "",
+        }
 
-        # 3. Run Mapper (sequential — must complete before analysis agents)
-        mapper = MapperAgent(self.ctx, self.ws)
-        await mapper.run()
+        # 3. Mark completed
+        self.analysis.status = AnalysisStatus.COMPLETED
+        completed_at = datetime.now(timezone.utc)
+        self.analysis.completed_at = completed_at
+        self.analysis.duration_seconds = int((completed_at - start_time).total_seconds())
+        await self.db.commit()
+        await self._broadcast_status("completed", 1.0, "Analysis completed.", extra={"stats": stats})
 
-        # 4. Run Quality, Pattern, Security in parallel
-        await self.ws.send_status("orchestrator", "running", 0.6, "Running analysis agents...")
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(QualityAgent(self.ctx, self.ws).run())
-            tg.create_task(PatternAgent(self.ctx, self.ws).run())
-            tg.create_task(SecurityAgent(self.ctx, self.ws).run())
+    async def _clone_repo(self, repo_url: str, branch: str | None, analysis_id: str) -> Path:
+        base_dir = Path(tempfile.gettempdir()) / "vibe-check" / "repos"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        clone_dir = base_dir / analysis_id
+        # Reuse existing clone directory if present
+        if clone_dir.exists():
+            return clone_dir
 
-        # 5. Doctor (needs findings from all agents)
-        doctor = DoctorAgent(self.ctx, self.ws)
-        await doctor.run()
-
-        # 6. Senso Knowledge Agent
-        senso = SensoKnowledgeAgent(self.ctx, self.ws)
-        await senso.run()
-
-        # 7. Compute Health Score (local, no LLM)
-        health_score = compute_health_score(self.ctx.findings, self.ctx.stats)
-        self.ctx.health_score = health_score
-        await self.ws.send_complete(health_score, self.ctx.findings_summary)
-
-    async def _clone_repo(self, url: str, branch: str | None) -> str:
-        clone_dir = f"/tmp/vibe-check/repos/{self.ctx.analysis_id}"
-        cmd = ["git", "clone", "--depth=1"]
+        cmd = ["git", "clone", "--depth", "1"]
         if branch:
             cmd += ["--branch", branch]
-        cmd += [url, clone_dir]
+        cmd += [repo_url, str(clone_dir)]
+
         proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        await proc.communicate()
+        _, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RuntimeError(f"Clone failed for {url}")
+            raise RuntimeError(f"Clone failed: {stderr.decode(errors='ignore')}")
         return clone_dir
 
-    async def _detect_stack(self, clone_dir: str) -> dict:
-        """Use Fastino classify_text on package files + file listing."""
-        file_listing = await self._get_file_listing(clone_dir)
-        result = await self.ctx.fastino.classify_text(
-            file_listing,
-            ["nextjs", "react", "express", "fastapi", "django", "vue", "angular", "svelte"]
-        )
+    async def _compute_basic_stats(self, clone_dir: Path) -> dict[str, Any]:
+        return await asyncio.to_thread(self._compute_basic_stats_sync, clone_dir)
+
+    def _compute_basic_stats_sync(self, clone_dir: Path) -> dict[str, Any]:
+        total_files = 0
+        total_lines = 0
+        languages: set[str] = set()
+
+        for path in clone_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            total_files += 1
+            try:
+                with path.open("r", encoding="utf-8", errors="ignore") as f:
+                    lines = sum(1 for _ in f)
+                total_lines += lines
+            except OSError:
+                continue
+
+            suffix = path.suffix.lower()
+            if suffix == ".py":
+                languages.add("python")
+            elif suffix in {".ts", ".tsx"}:
+                languages.add("typescript")
+            elif suffix in {".js", ".jsx"}:
+                languages.add("javascript")
+
         return {
-            "languages": await self._detect_languages(clone_dir),
-            "frameworks": [result["label"]],
-            "packageManager": await self._detect_package_manager(clone_dir),
-            "buildSystem": result["label"],
+            "total_files": total_files,
+            "total_lines": total_lines,
+            "total_dependencies": 0,
+            "total_dev_dependencies": 0,
+            "total_functions": 0,
+            "total_endpoints": 0,
+            "languages": sorted(languages),
         }
+
+    async def _broadcast_status(
+        self,
+        stage: str,
+        progress: float,
+        message: str,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "type": "status",
+            "agent": self.name,
+            "stage": stage,
+            "progress": progress,
+            "message": message,
+            "analysisId": self.analysis.analysis_id,
+        }
+        if extra:
+            payload.update(extra)
+        await manager.broadcast(self.analysis.analysis_id, payload)
+
+
+async def run_orchestrator(analysis_id: str) -> None:
+    """Entry point used by the HTTP layer to kick off background analysis."""
+    async with async_session() as db:
+        result = await db.execute(select(Analysis).where(Analysis.analysis_id == analysis_id))
+        analysis = result.scalar_one_or_none()
+        if not analysis:
+            return
+        agent = OrchestratorAgent(db=db, analysis=analysis)
+        await agent.run()
 ```
 
 **Health Score Algorithm (local, no LLM):**
@@ -1223,80 +1323,92 @@ Only used if Tavily results are insufficient for complex CVE chains.
 
 ## 7. DATABASE & STATE SCHEMAS
 
-### Analysis Record (SQLite via aiosqlite)
+### Analysis Record (PostgreSQL via SQLAlchemy)
+
+In the implemented backend, analysis state is stored in **PostgreSQL** using **SQLAlchemy's async ORM**.  
+The `Analysis` table is defined as a declarative model and managed via Alembic migrations.
 
 ```python
-# app/db/schema.py
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS analyses (
-    analysis_id TEXT PRIMARY KEY,
-    repo_url TEXT NOT NULL,
-    repo_name TEXT NOT NULL,
-    branch TEXT DEFAULT 'main',
-    clone_dir TEXT,
-    detected_stack TEXT,             -- JSON string
-    stats TEXT,                      -- JSON string
-    status TEXT DEFAULT 'queued',
-    agent_statuses TEXT,             -- JSON string
-    health_score TEXT,               -- JSON string
-    findings_summary TEXT,           -- JSON string
-    senso_content_ids TEXT DEFAULT '[]',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
-    completed_at TEXT,
-    duration_seconds INTEGER
-);
-"""
+# app/models.py
+import uuid
+from datetime import datetime
+from sqlalchemy import String, Text, Integer, Float, DateTime, JSON, Enum as SAEnum, func
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import UUID
+from app.database import Base
+import enum
+
+
+class AnalysisStatus(str, enum.Enum):
+    QUEUED = "queued"
+    CLONING = "cloning"
+    MAPPING = "mapping"
+    ANALYZING = "analyzing"
+    COMPLETING = "completing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class Analysis(Base):
+    __tablename__ = "analyses"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    analysis_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    repo_url: Mapped[str] = mapped_column(Text, nullable=False)
+    repo_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    branch: Mapped[str] = mapped_column(String(255), default="main")
+    clone_dir: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    status: Mapped[AnalysisStatus] = mapped_column(
+        SAEnum(AnalysisStatus, values_callable=lambda x: [e.value for e in x]),
+        default=AnalysisStatus.QUEUED,
+    )
+
+    detected_stack: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    agent_statuses: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    health_score: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    findings_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    senso_content_ids: Mapped[list | None] = mapped_column(JSON, default=list)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 ```
+
+Database connectivity is configured via environment-driven URLs:
 
 ```python
-# app/db/repository.py
-import aiosqlite
-import json
-from app.core.config import settings
+# app/database.py
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import DeclarativeBase
+from app.config import get_settings
 
-DB_PATH = "vibe_check.db"
+settings = get_settings()
 
-async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.executescript(SCHEMA)
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.debug,
+    pool_pre_ping=True,
+)
 
-async def create_analysis(analysis_id: str, repo_url: str, repo_name: str, branch: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO analyses (analysis_id, repo_url, repo_name, branch) VALUES (?, ?, ?, ?)",
-            (analysis_id, repo_url, repo_name, branch),
-        )
-        await db.commit()
+async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-async def update_status(analysis_id: str, status: str, **kwargs):
-    async with aiosqlite.connect(DB_PATH) as db:
-        sets = ["status = ?", "updated_at = datetime('now')"]
-        params = [status]
-        for key, val in kwargs.items():
-            sets.append(f"{key} = ?")
-            params.append(json.dumps(val) if isinstance(val, (dict, list)) else val)
-        params.append(analysis_id)
-        await db.execute(
-            f"UPDATE analyses SET {', '.join(sets)} WHERE analysis_id = ?", params
-        )
-        await db.commit()
 
-async def get_analysis(analysis_id: str) -> dict | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM analyses WHERE analysis_id = ?", (analysis_id,))
-        row = await cursor.fetchone()
-        if not row:
-            return None
-        result = dict(row)
-        # Parse JSON fields
-        for field in ["detected_stack", "stats", "agent_statuses", "health_score",
-                      "findings_summary", "senso_content_ids"]:
-            if result.get(field):
-                result[field] = json.loads(result[field])
-        return result
+class Base(DeclarativeBase):
+    pass
+
+
+async def get_db() -> AsyncSession:
+    async with async_session() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 ```
+
+At runtime, the FastAPI lifespan hook creates any missing tables using `Base.metadata.create_all`, and Alembic is used for schema migrations in containerized environments.
 
 ---
 
@@ -1359,6 +1471,29 @@ DASHBOARD QUERIES:
 
 ## 9. PROCESSING PIPELINE & DATA FLOW
 
+### Current Implementation (MVP)
+
+```
+USER INPUT: "https://github.com/user/repo"
+  │
+  ▼
+POST /api/v1/analyze → 202 Accepted → analysis_id
+  │
+  ▼ (background task via asyncio.create_task)
+ORCHESTRATOR (0:00-0:30)
+  ├── git clone → <temp>/vibe-check/repos/anl_abc123/
+  ├── Walk filesystem → count files + lines
+  ├── Detect languages by file extensions
+  ├── Update Analysis row (stats + detected_stack)
+  └── Stream status updates over WebSocket (type="status")
+  │
+  ▼
+GET /api/v1/analysis/{analysis_id}
+  └── Returns AnalysisResult (status, repo info, stats, timestamps)
+```
+
+### Planned Full Pipeline (Roadmap)
+
 ```
 USER INPUT: "https://github.com/user/repo"
   │
@@ -1366,14 +1501,14 @@ USER INPUT: "https://github.com/user/repo"
 POST /api/v1/analyze → 202 Accepted → analysis_id
   │
   ▼ (background task via asyncio)
-ORCHESTRATOR (0:00)
+ORCHESTRATOR
   ├── git clone → /tmp/vibe-check/repos/anl_abc123/
   ├── Detect stack: Fastino classify_text → "Next.js + TypeScript"
   ├── Pre-scan Senso search → historical intelligence
   └── Dispatch agents
   │
   ▼
-MAPPER AGENT (0:05-0:15)
+MAPPER AGENT
   ├── Walk filesystem → File/Directory nodes
   ├── Fastino classify_text (batch) → categorize all files
   ├── Parse package.json → Fastino extract_entities → Package nodes
@@ -1382,15 +1517,15 @@ MAPPER AGENT (0:05-0:15)
   └── All → Neo4j MERGE
   │
   ▼ (asyncio.TaskGroup — parallel)
-QUALITY AGENT (0:15-0:25)          PATTERN AGENT (0:15-0:25)          SECURITY AGENT (0:15-0:30)
-├── Fastino classify per block     ├── Fastino classify structure     ├── Tavily search per dep batch
-├── OpenAI deep analysis on flags  ├── OpenAI score best practices   ├── Fastino extract CVE entities
-└── Findings → Neo4j               └── Findings → Neo4j              ├── Tavily extract advisory pages
-                                                                      ├── OpenAI chain reasoning
-                                                                      └── Findings + Chains → Neo4j
+QUALITY AGENT                     PATTERN AGENT                     SECURITY AGENT
+├── Fastino classify per block    ├── Fastino classify structure    ├── Tavily search per dep batch
+├── OpenAI deep analysis on flags ├── OpenAI score best practices  ├── Fastino extract CVE entities
+└── Findings → Neo4j              └── Findings → Neo4j             ├── Tavily extract advisory pages
+                                                                    ├── OpenAI chain reasoning
+                                                                    └── Findings + Chains → Neo4j
   │
   ▼
-DOCTOR AGENT (0:30-0:40)
+DOCTOR AGENT
   ├── Collect all findings
   ├── Senso search → historical fixes
   ├── OpenAI generate fix docs (with graph context + Senso intel)
@@ -1398,7 +1533,7 @@ DOCTOR AGENT (0:30-0:40)
   └── Fix nodes → Neo4j
   │
   ▼
-SENSO KNOWLEDGE AGENT (0:40-0:45)
+SENSO KNOWLEDGE AGENT
   ├── POST /content/raw per finding
   ├── POST /content/raw per fix
   ├── POST /content/raw repo profile
@@ -1406,7 +1541,7 @@ SENSO KNOWLEDGE AGENT (0:40-0:45)
   └── Return intelligence to dashboard
   │
   ▼
-HEALTH SCORE COMPUTATION (0:45)
+HEALTH SCORE COMPUTATION
   └── Local algorithm → HealthScore → Neo4j → WebSocket → Dashboard
 ```
 
@@ -1429,111 +1564,60 @@ HEALTH SCORE COMPUTATION (0:45)
 
 ## 11. PYTHON PROJECT STRUCTURE
 
+### Current Backend Layout
+
 ```
-vibe-check-backend/
+backend/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                          # FastAPI app, lifespan, CORS, include routers
+│   ├── main.py              # FastAPI app, lifespan, CORS, include routers
+│   ├── config.py            # Pydantic Settings (env vars, DB URLs, API keys)
+│   ├── database.py          # Async SQLAlchemy engine + session + Base
+│   ├── models.py            # SQLAlchemy ORM models (Analysis, AnalysisStatus)
+│   ├── schemas.py           # Pydantic API schemas (AnalyzeRequest, AnalysisResult, etc.)
 │   │
-│   ├── core/
+│   ├── agents/              # Agent implementations (in progress)
 │   │   ├── __init__.py
-│   │   ├── config.py                    # Pydantic Settings (env vars)
-│   │   └── lifespan.py                  # App startup/shutdown (init DB, clients, Senso taxonomy)
+│   │   ├── base.py          # BaseAgent ABC (shared agent lifecycle)
+│   │   └── orchestrator.py  # OrchestratorAgent: clone + basic stats + WS status
 │   │
-│   ├── models/                          # Pydantic models (request/response/domain)
-│   │   ├── __init__.py
-│   │   ├── analysis.py                  # AnalyzeRequest, AnalysisResult, AnalysisContext
-│   │   ├── findings.py                  # Finding, FindingLocation, BlastRadius, CVEInfo
-│   │   ├── fixes.py                     # Fix, FixDocumentation, FixSummary
-│   │   ├── graph.py                     # GraphNode, GraphEdge, GraphResponse
-│   │   ├── chains.py                    # VulnerabilityChain, ChainStep
-│   │   ├── health.py                    # HealthScore, CategoryScore
-│   │   ├── senso.py                     # SensoSearchResult, SensoInsight, SensoGenerateResult
-│   │   └── ws.py                        # WSMessage union, all WS message types
-│   │
-│   ├── api/                             # FastAPI routers
-│   │   ├── __init__.py
-│   │   ├── analyze.py                   # POST /analyze
-│   │   ├── analysis.py                  # GET /analysis/:id, /findings, /chains, /fixes, /graph
-│   │   ├── senso.py                     # POST /analysis/:id/senso/search, /senso/generate
-│   │   └── ws.py                        # WebSocket /ws/analysis/:id
-│   │
-│   ├── agents/                          # Agent implementations
-│   │   ├── __init__.py
-│   │   ├── base.py                      # BaseAgent ABC
-│   │   ├── orchestrator.py              # Clone, dispatch, score
-│   │   ├── mapper.py                    # File walk, Fastino classify/extract, Neo4j graph
-│   │   ├── quality.py                   # Fastino classify → OpenAI deep analysis
-│   │   ├── pattern.py                   # Fastino classify → OpenAI scoring
-│   │   ├── security.py                  # Tavily → Fastino → OpenAI chains
-│   │   ├── doctor.py                    # Senso search + OpenAI fix gen
-│   │   └── senso_knowledge.py           # Senso ingest, search, generate
-│   │
-│   ├── clients/                         # External API clients (async)
-│   │   ├── __init__.py
-│   │   ├── fastino.py                   # Fastino TLM + GLiNER-2 client
-│   │   ├── openai_client.py             # OpenAI async wrapper
-│   │   ├── tavily_client.py             # Tavily search + extract
-│   │   ├── neo4j_client.py              # Neo4j async driver wrapper
-│   │   └── senso_client.py              # Senso Context OS httpx client
-│   │
-│   ├── ws/                              # WebSocket management
-│   │   ├── __init__.py
-│   │   ├── broadcaster.py               # WebSocketBroadcaster (send_status, send_finding, etc.)
-│   │   └── manager.py                   # Connection manager (multi-client per analysis)
-│   │
-│   ├── scoring/                         # Health score computation
-│   │   ├── __init__.py
-│   │   └── health.py                    # compute_health_score(), score_to_grade()
-│   │
-│   ├── db/                              # SQLite persistence
-│   │   ├── __init__.py
-│   │   ├── schema.py                    # CREATE TABLE SQL
-│   │   └── repository.py                # CRUD functions (async)
-│   │
-│   ├── services/                        # Business logic / orchestration
-│   │   ├── __init__.py
-│   │   ├── senso_init.py                # Taxonomy, prompts, templates init
-│   │   └── demo.py                      # Demo repo detection + cached replay
-│   │
-│   └── prompts/                         # LLM system prompts (text files)
-│       ├── quality_system.txt
-│       ├── pattern_system.txt
-│       ├── security_chain.txt
-│       └── fix_doc_system.txt
+│   └── routers/             # FastAPI routers
+│       ├── __init__.py
+│       ├── health.py        # GET /api/v1/health
+│       ├── analysis.py      # POST /api/v1/analyze, GET /api/v1/analysis/{id}
+│       └── ws.py            # WebSocket /ws/analysis/{id} + ConnectionManager
 │
-├── requirements.txt                     # Python dependencies
-├── .env                                 # Environment variables
-├── .env.example
+├── alembic/                 # Alembic migration environment
+├── alembic.ini              # Alembic configuration
+├── Dockerfile               # Backend image (runs Alembic + uvicorn)
+├── entrypoint.sh            # Optional: wait for Postgres, migrate, start app
+├── requirements.txt         # Python dependencies
 └── README.md
 ```
+
+### Planned Expansion (Roadmap)
+
+The following modules and directories are part of the **target architecture** and are not yet implemented:
+
+- Additional agents: `MapperAgent`, `QualityAgent`, `PatternAgent`, `SecurityAgent`, `DoctorAgent`, `SensoKnowledgeAgent`
+- External clients: `fastino.py`, `openai_client.py`, `tavily_client.py`, `neo4j_client.py`, `senso_client.py`
+- Neo4j graph layer, Senso initialization services, and LLM prompt files
 
 ### requirements.txt
 
 ```
-# Web Framework
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.0
-pydantic-settings>=2.0
-
-# Async
-httpx>=0.27.0
-aiosqlite>=0.20.0
-
-# AI / LLM
-openai>=1.50.0
-tavily-python>=0.5.0
-gliner2>=0.1.0
-
-# Graph
-neo4j>=5.20.0
-
-# Code Parsing
-tree-sitter>=0.22.0
-
-# Utilities
-python-dotenv>=1.0.0
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+alembic==1.14.1
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+httpx==0.28.1
+websockets==14.1
+neo4j==5.27.0
 ```
 
 ### FastAPI Entry Point
