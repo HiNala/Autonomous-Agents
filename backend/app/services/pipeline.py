@@ -151,34 +151,70 @@ async def _clone_repo(analysis_id: str) -> str:
     clone_dir = os.path.join(CLONE_BASE, analysis_id)
     os.makedirs(clone_dir, exist_ok=True)
 
-    cmd = ["git", "clone", "--depth=1"]
-    if branch:
-        cmd += ["--branch", branch]
-    cmd += [repo_url, clone_dir]
+    # Disable terminal prompts so git never blocks waiting for credentials
+    # For private repos, embed GITHUB_TOKEN in the URL
+    from app.config import get_settings as _gs
+    _settings = _gs()
+    effective_url = repo_url
+    if _settings.github_token and "github.com" in repo_url:
+        # Embed token: https://token@github.com/owner/repo
+        effective_url = repo_url.replace("https://", f"https://{_settings.github_token}@")
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await proc.communicate()
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+
+    async def _run_clone(branch_arg: str | None) -> tuple[int, bytes, bytes]:
+        cmd = ["git", "clone", "--depth=1"]
+        if branch_arg:
+            cmd += ["--branch", branch_arg]
+        cmd += [effective_url, clone_dir]
+        p = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        out, err = await p.communicate()
+        return p.returncode, out, err
+
+    # Try specified branch first; if it fails and the branch is the generic default
+    # ("main"), retry without --branch so git picks the remote's actual default
+    returncode, stdout, stderr = await _run_clone(branch)
+    if returncode != 0 and branch in ("main", "master"):
+        import shutil
+        shutil.rmtree(clone_dir, ignore_errors=True)
+        os.makedirs(clone_dir, exist_ok=True)
+        returncode, stdout, stderr = await _run_clone(None)
+
+    # Detect which branch was actually checked out
+    if returncode == 0:
+        bp = await asyncio.create_subprocess_exec(
+            "git", "-C", clone_dir, "rev-parse", "--abbrev-ref", "HEAD",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env,
+        )
+        b_out, _ = await bp.communicate()
+        detected_branch = b_out.decode().strip() or branch
+    else:
+        detected_branch = branch
 
     await log_tool_call(
         analysis_id=analysis_id,
         tool_name="git",
         step_name="clone",
         endpoint=repo_url,
-        request_payload={"branch": branch, "depth": 1},
-        response_payload={"returncode": proc.returncode, "stderr": stderr.decode()[:2000]},
-        status="success" if proc.returncode == 0 else "error",
+        request_payload={"branch": detected_branch, "depth": 1},
+        response_payload={"returncode": returncode, "stderr": stderr.decode()[:2000]},
+        status="success" if returncode == 0 else "error",
     )
 
-    if proc.returncode != 0:
+    if returncode != 0:
         raise RuntimeError(f"git clone failed: {stderr.decode()[:500]}")
 
+    # Update branch + clone_dir in DB
     async with async_session() as session:
         await session.execute(
             update(Analysis)
             .where(Analysis.analysis_id == analysis_id)
-            .values(clone_dir=clone_dir)
+            .values(branch=detected_branch, clone_dir=clone_dir)
         )
         await session.commit()
 
@@ -214,7 +250,8 @@ async def _ingest_metadata(analysis_id: str, clone_dir: str) -> dict[str, Any]:
             ext = os.path.splitext(fname)[1].lower()
             lang = ext_to_lang.get(ext, "")
             try:
-                line_count = sum(1 for _ in open(fpath, "r", errors="ignore"))
+                with open(fpath, "r", errors="ignore") as _f:
+                    line_count = sum(1 for _ in _f)
             except Exception:
                 line_count = 0
             total_lines += line_count
@@ -378,7 +415,8 @@ async def _fastino_analyze(
     for f in source_files[:30]:
         fpath = os.path.join(clone_dir, f["path"])
         try:
-            content = open(fpath, "r", errors="ignore").read()[:3000]
+            with open(fpath, "r", errors="ignore") as _f:
+                content = _f.read()[:3000]
         except Exception:
             continue
 

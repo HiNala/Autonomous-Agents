@@ -14,8 +14,8 @@ from app.database import async_session
 from app.models import Analysis, AnalysisStatus
 from app.routers.ws import manager
 from app.clients.github_client import fetch_repo_metadata
-from app.clients.tavily_client import search_repo_context
-from app.clients.fastino import classify_text
+from app.clients.tavily_client import TavilyClient
+from app.clients.fastino import FastinoClient
 from app.clients.neo4j_client import Neo4jClient
 from app.llm.provider import get_reasoning_provider
 
@@ -117,7 +117,12 @@ class OrchestratorAgent(BaseAgent):
             message="Running Tavily enrichment (CVE + dependencies)...",
         )
         try:
-            tavily_data = await search_repo_context(self.analysis.repo_url)
+            tavily = TavilyClient()
+            tavily_data = await tavily.search(
+                analysis_id=self.analysis.analysis_id,
+                query=f"security vulnerabilities CVEs dependencies {self.analysis.repo_name}",
+                step_name="tavily_enrichment",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Tavily enrichment failed: %s", exc)
             tavily_data = {}
@@ -139,9 +144,11 @@ class OrchestratorAgent(BaseAgent):
         )
         fastino_quick = {}
         try:
-            fastino_quick = await classify_text(
-                quick_context,
-                ["healthy", "needs_attention", "high_risk"],
+            fastino = FastinoClient()
+            fastino_quick = await fastino.classify_text(
+                analysis_id=self.analysis.analysis_id,
+                text=quick_context,
+                categories=["healthy", "needs_attention", "high_risk"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Fastino quick scoring failed: %s", exc)

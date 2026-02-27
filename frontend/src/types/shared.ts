@@ -96,7 +96,7 @@ export interface FixSummary {
 
 export interface VulnerabilityChain {
   id: string;
-  severity: "critical" | "high" | "medium";
+  severity: Severity;
   description: string;
   steps: ChainStep[];
   blastRadius: { files: number; functions: number; endpoints: number };

@@ -335,15 +335,17 @@ async def get_blast_radius(analysis_id: str, node_id: str, depth: int = 3) -> di
     if not driver:
         return {"files": 0, "functions": 0, "endpoints": 0}
     async with driver.session(database="neo4j") as session:
+        # Pure Cypher BFS — no APOC required (Community Edition compatible)
         result = await session.run(
             """
             MATCH (start {id: $nodeId, analysisId: $analysisId})
-            CALL apoc.path.subgraphNodes(start, {maxLevel: $depth, relationshipFilter: '>'})
-            YIELD node
+            MATCH path = (start)-[*1..$depth]->(node)
+            WHERE node.analysisId = $analysisId
+            WITH collect(DISTINCT node) AS nodes
             RETURN
-              count(CASE WHEN 'File' IN labels(node) THEN 1 END) AS files,
-              count(CASE WHEN 'Function' IN labels(node) THEN 1 END) AS functions,
-              count(CASE WHEN 'Endpoint' IN labels(node) THEN 1 END) AS endpoints
+              size([n IN nodes WHERE 'File' IN labels(n)]) AS files,
+              size([n IN nodes WHERE 'Function' IN labels(n)]) AS functions,
+              size([n IN nodes WHERE 'Endpoint' IN labels(n)]) AS endpoints
             """,
             nodeId=node_id,
             analysisId=analysis_id,

@@ -67,12 +67,12 @@ export const api = {
       { method: "POST", body: JSON.stringify({ query, maxResults }) }
     ),
 
-  sensoGenerate: (id: string, contentType: string, instructions: string, save = true, maxResults = 10) =>
+  sensoGenerate: (id: string, prompt: string, contextQuery?: string, saveResult = true) =>
     request<SensoGenerateResult>(
       `/analysis/${id}/senso/generate`,
       {
         method: "POST",
-        body: JSON.stringify({ contentType, instructions, save, maxResults }),
+        body: JSON.stringify({ prompt, context_query: contextQuery, save_result: saveResult }),
       }
     ),
 };
