@@ -6,6 +6,10 @@ import type {
   Fix,
   FixSummary,
   VulnerabilityChain,
+  GraphNode,
+  GraphEdge,
+  SensoSearchResult,
+  SensoGenerateResult,
 } from "@/types/shared";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -33,7 +37,9 @@ export const api = {
     request<AnalysisResult>(`/analysis/${id}`),
 
   getFindings: (id: string, params?: { severity?: string; agent?: string; limit?: number; offset?: number }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)]))
+    ).toString();
     return request<{ items: Finding[]; total: number; limit: number; offset: number }>(
       `/analysis/${id}/findings${qs ? `?${qs}` : ""}`
     );
@@ -46,13 +52,27 @@ export const api = {
     request<{ fixes: Fix[]; summary: FixSummary }>(`/analysis/${id}/fixes`),
 
   getGraph: (id: string, view?: string, depth?: number) => {
-    const qs = new URLSearchParams({ view: view ?? "structure", ...(depth ? { depth: String(depth) } : {}) }).toString();
-    return request<{ nodes: unknown[]; edges: unknown[]; layout: unknown }>(`/analysis/${id}/graph?${qs}`);
+    const qs = new URLSearchParams({
+      view: view ?? "structure",
+      ...(depth ? { depth: String(depth) } : {}),
+    }).toString();
+    return request<{ nodes: GraphNode[]; edges: GraphEdge[]; layout: { type: string; direction?: string } }>(
+      `/analysis/${id}/graph?${qs}`
+    );
   },
 
   sensoSearch: (id: string, query: string, maxResults = 5) =>
-    request<{ answer: string; sources: unknown[]; processingTimeMs: number; totalResults: number }>(
+    request<SensoSearchResult>(
       `/analysis/${id}/senso/search`,
       { method: "POST", body: JSON.stringify({ query, maxResults }) }
+    ),
+
+  sensoGenerate: (id: string, contentType: string, instructions: string, save = true, maxResults = 10) =>
+    request<SensoGenerateResult>(
+      `/analysis/${id}/senso/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ contentType, instructions, save, maxResults }),
+      }
     ),
 };

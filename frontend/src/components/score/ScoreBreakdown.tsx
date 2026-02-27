@@ -36,18 +36,15 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function ScoreBreakdown() {
-  const { result, findingFilters } = useAnalysisStore();
+  const { result, findingFilters, setFindingFilter } = useAnalysisStore();
   const breakdown = result?.healthScore?.breakdown;
   const [hovered, setHovered] = useState<string | null>(null);
-  const activeFilter = (findingFilters as { category?: string }).category;
+  const activeFilter = findingFilters.category;
 
   if (!breakdown) return null;
 
   function handleCategoryClick(key: string) {
-    // Toggle category filter in store — expose via zustand if needed
-    // For now we just highlight; full filter wiring is done in FindingsPanel
-    const store = require("@/stores/analysisStore").useAnalysisStore;
-    store.getState().setFindingFilter?.({ category: activeFilter === key ? undefined : key });
+    setFindingFilter({ category: activeFilter === key ? undefined : key });
   }
 
   return (

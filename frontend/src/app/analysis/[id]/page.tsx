@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { use } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
@@ -39,6 +39,22 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
   const isCompleted = status === "completed";
   const isFailed    = status === "failed";
 
+  // ── Choreographed reveal sequence ──────────────────────────
+  // T+0.0s: score row appears
+  // T+0.5s: graph + findings row appears
+  // T+1.5s: fix plan appears
+  // T+2.5s: senso panel appears
+  const [revealPhase, setRevealPhase] = useState(0);
+
+  useEffect(() => {
+    if (!isCompleted) { setRevealPhase(0); return; }
+    const t1 = setTimeout(() => setRevealPhase(1), 50);
+    const t2 = setTimeout(() => setRevealPhase(2), 500);
+    const t3 = setTimeout(() => setRevealPhase(3), 1500);
+    const t4 = setTimeout(() => setRevealPhase(4), 2500);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+  }, [isCompleted]);
+
   return (
     <AppShell>
       {/* ── SCANNING VIEW ─────────────────────────────────── */}
@@ -55,7 +71,6 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
             flexDirection: "column",
             gap: "var(--space-5)",
           }}
-          className="animate-fade-in"
         >
           {/* Row 1 — Score hero + breakdown */}
           <div
@@ -64,6 +79,9 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
               gridTemplateColumns: "260px 1fr",
               gap: "var(--space-5)",
               alignItems: "start",
+              opacity: revealPhase >= 1 ? 1 : 0,
+              transform: revealPhase >= 1 ? "translateY(0)" : "translateY(12px)",
+              transition: "opacity 0.5s ease, transform 0.5s ease",
             }}
           >
             <HealthScoreHero />
@@ -77,6 +95,9 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
               gridTemplateColumns: "60% 1fr",
               gap: "var(--space-5)",
               alignItems: "start",
+              opacity: revealPhase >= 2 ? 1 : 0,
+              transform: revealPhase >= 2 ? "translateY(0)" : "translateY(16px)",
+              transition: "opacity 0.5s ease, transform 0.5s ease",
             }}
           >
             <GraphPanel />
@@ -84,10 +105,26 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
           </div>
 
           {/* Row 3 — Fix plan */}
-          <FixPlan />
+          <div
+            style={{
+              opacity: revealPhase >= 3 ? 1 : 0,
+              transform: revealPhase >= 3 ? "translateY(0)" : "translateY(16px)",
+              transition: "opacity 0.5s ease, transform 0.5s ease",
+            }}
+          >
+            <FixPlan />
+          </div>
 
           {/* Row 4 — Senso intelligence */}
-          <SensoIntelligencePanel />
+          <div
+            style={{
+              opacity: revealPhase >= 4 ? 1 : 0,
+              transform: revealPhase >= 4 ? "translateY(0)" : "translateY(16px)",
+              transition: "opacity 0.5s ease, transform 0.5s ease",
+            }}
+          >
+            <SensoIntelligencePanel />
+          </div>
         </div>
       )}
 

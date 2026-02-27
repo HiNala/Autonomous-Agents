@@ -424,6 +424,12 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
     const cy = cyRef.current;
     if (!cy) return;
 
+    // Remove nodes/edges no longer in the visible set (e.g. search filter reduced set)
+    const validNodeIds = new Set(nodes.map((n) => n.id));
+    const validEdgeIds = new Set(edges.map((e) => e.id));
+    cy.nodes().filter((n) => !validNodeIds.has(n.id() as string)).remove();
+    cy.edges().filter((e) => !validEdgeIds.has(e.id() as string)).remove();
+
     const existingIds = new Set(cy.nodes().map((n) => n.id() as string));
     const existingEdgeIds = new Set(cy.edges().map((e) => e.id() as string));
 

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, Integer, Float, DateTime, JSON, Enum as SAEnum, func
+from sqlalchemy import String, Text, Integer, Float, DateTime, JSON, Enum as SAEnum, func, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -42,7 +42,6 @@ class Analysis(Base):
     findings_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     senso_content_ids: Mapped[list | None] = mapped_column(JSON, default=list)
 
-    # Populated by agents — stored as JSONB blobs
     findings: Mapped[list | None] = mapped_column(JSON, nullable=True)
     fixes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     chains: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -55,3 +54,20 @@ class Analysis(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ToolCall(Base):
+    """Logs every sponsor-tool API call so we can audit, debug, and build on results later."""
+    __tablename__ = "tool_calls"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    analysis_id: Mapped[str] = mapped_column(String(64), ForeignKey("analyses.analysis_id"), nullable=False, index=True)
+    tool_name: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    step_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    request_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    response_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="success")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

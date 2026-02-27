@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.schemas import (
     Timestamps,
     ErrorResponse,
 )
+from app.services.pipeline import run_pipeline
 
 router = APIRouter()
 
@@ -40,6 +42,8 @@ async def start_analysis(request: AnalyzeRequest, db: AsyncSession = Depends(get
     )
     db.add(analysis)
     await db.commit()
+
+    asyncio.create_task(run_pipeline(analysis_id))
 
     return AnalyzeResponse(
         analysis_id=analysis_id,

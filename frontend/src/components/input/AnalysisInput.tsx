@@ -5,6 +5,7 @@ import { useAnalysisStore } from "@/stores/analysisStore";
 import { api } from "@/lib/api";
 
 const GITHUB_RE = /^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+(\/.*)?$/;
+const DEMO_URL = "https://github.com/HiNala/demo-vulnerable-app";
 
 export function AnalysisInput() {
   const router = useRouter();
@@ -357,19 +358,51 @@ export function AnalysisInput() {
           </button>
         </form>
 
-        {/* Sub-label */}
-        <p
-          style={{
-            fontSize: "var(--text-micro)",
-            color: "var(--text-quaternary)",
-            textAlign: "center",
-            fontFamily: "var(--font-code)",
-            margin: 0,
-            letterSpacing: "0.04em",
-          }}
-        >
-          Up to 500 files · Autonomous agents · Real-time progress
-        </p>
+        {/* Sub-label + Demo */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--space-3)" }}>
+          <p
+            style={{
+              fontSize: "var(--text-micro)",
+              color: "var(--text-quaternary)",
+              textAlign: "center",
+              fontFamily: "var(--font-code)",
+              margin: 0,
+              letterSpacing: "0.04em",
+            }}
+          >
+            Up to 500 files · Autonomous agents · Real-time progress
+          </p>
+          <button
+            type="button"
+            onClick={() => { setUrl(DEMO_URL); setError(null); }}
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border-default)",
+              borderRadius: "var(--radius-full)",
+              padding: "4px 14px",
+              fontSize: "var(--text-micro)",
+              color: "var(--text-tertiary)",
+              fontFamily: "var(--font-code)",
+              cursor: "pointer",
+              letterSpacing: "0.06em",
+              transition: "all 0.15s ease",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.borderColor = "var(--border-hover)";
+              (e.currentTarget as HTMLElement).style.color = "var(--text-secondary)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)";
+              (e.currentTarget as HTMLElement).style.color = "var(--text-tertiary)";
+            }}
+          >
+            <span style={{ fontSize: "0.8rem" }}>⚡</span>
+            Try demo repo
+          </button>
+        </div>
       </div>
     </div>
   );

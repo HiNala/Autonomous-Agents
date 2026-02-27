@@ -179,12 +179,50 @@ export interface AnalysisResult {
   findings: FindingsSummary;
   vulnerabilityChains: number;
   fixesGenerated: number;
+  sensoIntelligence?: {
+    crossRepoPatterns: number;
+    previousFixesApplied: number;
+    knowledgeBaseContributions: number;
+  };
   timestamps: {
     startedAt: string;
     completedAt: string | null;
     duration: number | null;
   };
 }
+
+// ── SENSO INTELLIGENCE ──────────────────────────────────────
+
+export interface SensoSearchResult {
+  answer: string;
+  sources: SensoSource[];
+  processingTimeMs: number;
+  totalResults: number;
+}
+
+export interface SensoSource {
+  contentId: string;
+  title: string;
+  score: number;
+  chunkText: string;
+}
+
+export interface SensoInsight {
+  type: "pattern" | "historical_fix" | "cross_repo";
+  title: string;
+  description: string;
+  reposAffected: number;
+  sourceContentIds: string[];
+}
+
+export interface SensoGenerateResult {
+  generatedText: string;
+  sources: { contentId: string; title: string; score: number }[];
+  processingTimeMs: number;
+  savedContentId?: string;
+}
+
+// ── REQUESTS & RESPONSES ────────────────────────────────────
 
 export interface AnalyzeRequest {
   repoUrl: string;

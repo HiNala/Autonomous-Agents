@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Build
+.next/
+out/
+dist/
+build/
+*.egg-info/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Docker
+docker-compose.override.yml
+
+# Docs (not needed in image)
+docks/
+*.md
+!README.md
+
+# Tests
+coverage/
+.pytest_cache/
+htmlcov/

@@ -28,6 +28,16 @@ export function GraphPanel() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [resetKey, setResetKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Sync React isFullscreen state with native Fullscreen API changes
+  useEffect(() => {
+    function onFsChange() {
+      setIsFullscreen(!!document.fullscreenElement);
+    }
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
 
   // Filtered nodes based on search
   const visibleNodes = searchQuery
@@ -48,6 +58,19 @@ export function GraphPanel() {
   const handleViewChange = useCallback((v: GraphViewMode) => setGraphView(v), [setGraphView]);
   const handleNodeClick = useCallback((id: string) => selectNode(id === selectedNodeId ? null : id), [selectNode, selectedNodeId]);
 
+  const handleFullscreen = useCallback(async () => {
+    if (!document.fullscreenElement) {
+      try {
+        await panelRef.current?.requestFullscreen();
+      } catch {
+        // Fallback: CSS-based fullscreen overlay
+        setIsFullscreen((f) => !f);
+      }
+    } else {
+      await document.exitFullscreen();
+    }
+  }, []);
+
   // Count node types for stats
   const fileCount = graphNodes.filter((n) => n.type === "file").length;
   const funcCount = graphNodes.filter((n) => n.type === "function" || n.type === "class").length;
@@ -58,6 +81,7 @@ export function GraphPanel() {
 
   return (
     <div
+      ref={panelRef}
       style={{
         background: "rgba(17, 17, 22, 0.72)",
         backdropFilter: "blur(12px) saturate(1.4)",
@@ -78,7 +102,7 @@ export function GraphPanel() {
         view={currentGraphView}
         onViewChange={handleViewChange}
         onReset={handleReset}
-        onFullscreen={() => setIsFullscreen((f) => !f)}
+        onFullscreen={handleFullscreen}
         onSearch={setSearchQuery}
         nodeCount={graphNodes.length}
         edgeCount={graphEdges.length}
