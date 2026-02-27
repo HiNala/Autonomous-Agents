@@ -254,7 +254,7 @@ export function AnalysisInput() {
               style={{
                 fontSize: "var(--text-small)",
                 color: "var(--color-critical-text)",
-                margin: "-var(--space-2) 0 0",
+                margin: "calc(-1 * var(--space-2)) 0 0",
                 fontFamily: "var(--font-code)",
                 animation: "fade-in 0.2s ease-out",
               }}

@@ -4,8 +4,9 @@ import { Header } from "./Header";
 import { SponsorFooter } from "./SponsorFooter";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { status } = useAnalysisStore();
-  const isScanning = ["queued", "cloning", "mapping", "analyzing", "completing"].includes(status);
+  const { status, analysisId } = useAnalysisStore();
+  // Only show scan line when an analysis is actually in progress (not on initial page load)
+  const isScanning = analysisId !== null && ["queued", "cloning", "mapping", "analyzing", "completing"].includes(status);
 
   return (
     <>
