@@ -61,10 +61,15 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       FASTINO_API_KEY: ${FASTINO_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Local GLiNER2 (when FASTINO_API_KEY not set): cache dir for model
+      HF_HOME: /app/.cache/huggingface
+      TRANSFORMERS_CACHE: /app/.cache/huggingface
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      # Persist GLiNER2 model cache so it is not re-downloaded on restart
+      - gliner2_cache:/app/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,3 +100,4 @@ volumes:
   neo4j_logs:
   frontend_node_modules:
   frontend_next:
+  gliner2_cache:

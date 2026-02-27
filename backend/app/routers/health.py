@@ -53,19 +53,6 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
             return {"message": "Neo4j connected"}
         raise ConnectionError("Neo4j unreachable or not configured")
 
-    async def check_senso():
-        key = settings.senso_api_key
-        if not key:
-            raise ValueError("SENSO_API_KEY not set")
-        async with httpx.AsyncClient(timeout=6.0) as c:
-            r = await c.get(
-                "https://sdk.senso.ai/api/v1/content",
-                headers={"X-Api-Key": key, "Content-Type": "application/json"},
-                params={"limit": 1},
-            )
-            r.raise_for_status()
-            return {"message": f"Senso OK — HTTP {r.status_code}"}
-
     async def check_openai():
         key = settings.openai_api_key
         if not key:
@@ -103,17 +90,22 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
             return {"message": "Yutori OK — API healthy"}
 
     async def check_fastino():
-        key = settings.fastino_api_key
-        if not key:
-            raise ValueError("FASTINO_API_KEY not set")
-        async with httpx.AsyncClient(timeout=6.0) as c:
-            r = await c.post(
-                "https://api.fastino.ai/gliner-2",
-                headers={"Authorization": f"Bearer {key}"},
-                json={"task": "classify_text", "text": "hello", "schema": {"categories": ["test"]}},
-            )
-            r.raise_for_status()
-            return {"message": "Fastino OK — GLiNER-2 responding"}
+        from app.clients.fastino import FastinoClient
+        client = FastinoClient()
+        if not client.available:
+            raise ValueError("Fastino unavailable (no API key and local GLiNER2 not loaded)")
+        if settings.fastino_api_key:
+            async with httpx.AsyncClient(timeout=6.0) as c:
+                r = await c.post(
+                    "https://api.fastino.com/gliner-2",
+                    headers={"x-api-key": settings.fastino_api_key, "Content-Type": "application/json"},
+                    json={"task": "classify_text", "text": "hello", "schema": {"categories": ["test"]}},
+                )
+                r.raise_for_status()
+            return {"message": "Fastino OK — API responding"}
+        # Local GLiNER2: quick classify
+        result = await client.classify_text("health", "hello", ["test"], step_name="health_check")
+        return {"message": f"Fastino OK — local GLiNER2 ({(result.get('_latency_ms') or 0)}ms)"}
 
     async def check_github():
         token = settings.github_token
@@ -131,7 +123,6 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
     results = await asyncio.gather(
         _check("PostgreSQL", check_db()),
         _check("Neo4j", check_neo4j()),
-        _check("Senso", check_senso()),
         _check("Yutori", check_yutori()),
         _check("OpenAI", check_openai()),
         _check("Tavily", check_tavily()),
