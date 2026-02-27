@@ -17,11 +17,6 @@ import type {
   FindingsSummary,
 } from "@/types/shared";
 
-interface SensoInsight {
-  insight: string;
-  sourceCount: number;
-}
-
 interface AnalysisStore {
   analysisId: string | null;
   status: AnalysisStatus;
@@ -39,7 +34,6 @@ interface AnalysisStore {
   fixes: Fix[];
   fixSummary: FixSummary | null;
   chains: VulnerabilityChain[];
-  sensoInsights: SensoInsight[];
   errorMessage: string | null;
 
   // Actions
@@ -48,7 +42,6 @@ interface AnalysisStore {
   addGraphNode: (node: GraphNode) => void;
   addGraphEdge: (edge: GraphEdge) => void;
   addLiveFinding: (finding: { id: string; severity: Severity; title: string; agent: AgentName }) => void;
-  addSensoInsight: (insight: string, sourceCount: number) => void;
   setComplete: (healthScore: HealthScore, findingsSummary: FindingsSummary, duration: number) => void;
   setFailed: (message: string) => void;
   setResult: (result: AnalysisResult) => void;
@@ -66,7 +59,7 @@ interface AnalysisStore {
 
 const defaultAgentStatuses = (): Record<AgentName, AgentStatus> =>
   Object.fromEntries(
-    (["orchestrator", "mapper", "quality", "pattern", "security", "doctor", "senso"] as AgentName[]).map(
+    (["orchestrator", "mapper", "quality", "pattern", "security", "doctor"] as AgentName[]).map(
       (name) => [name, { name, status: "pending", progress: 0, message: "" }]
     )
   ) as Record<AgentName, AgentStatus>;
@@ -88,7 +81,6 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   fixes: [],
   fixSummary: null,
   chains: [],
-  sensoInsights: [],
   errorMessage: null,
 
   startAnalysis: (id) => set({ analysisId: id, status: "queued", graphNodes: [], graphEdges: [], liveFindings: [], agentStatuses: defaultAgentStatuses(), errorMessage: null }),
@@ -101,9 +93,6 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
 
   addLiveFinding: (finding) =>
     set((s) => ({ liveFindings: [...s.liveFindings.slice(-20), finding] })),
-
-  addSensoInsight: (insight, sourceCount) =>
-    set((s) => ({ sensoInsights: [...s.sensoInsights, { insight, sourceCount }] })),
 
   setComplete: (healthScore, findingsSummary, duration) =>
     set((s) => ({
@@ -133,7 +122,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
     agentStatuses: defaultAgentStatuses(),
     graphNodes: [], graphEdges: [], liveFindings: [],
     findings: [], fixes: [], fixSummary: null, chains: [],
-    sensoInsights: [], errorMessage: null,
+    errorMessage: null,
     selectedNodeId: null, selectedFindingId: null, highlightedChainId: null,
   }),
 }));

@@ -1,12 +1,17 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-import httpx
+from __future__ import annotations
+
 import asyncio
 import logging
+from collections.abc import Coroutine
+from typing import Any
 
-from app.database import get_db
+import httpx
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import get_settings
+from app.database import get_db
 from app.schemas import HealthResponse
 from app.services import neo4j as neo4j_service
 
@@ -20,10 +25,12 @@ async def health_check(db: AsyncSession = Depends(get_db)):
     try:
         await db.execute(text("SELECT 1"))
         db_status = "connected"
+        overall = "ok"
     except Exception:
         db_status = "disconnected"
+        overall = "degraded"
     return HealthResponse(
-        status="ok",
+        status=overall,
         service="vibecheck-api",
         version="0.1.0",
         database=db_status,
@@ -34,7 +41,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
 async def integration_health(db: AsyncSession = Depends(get_db)):
     """Test all sponsor API keys and external service connections."""
 
-    async def _check(name: str, coro) -> dict:
+    async def _check(name: str, coro: Coroutine[Any, Any, dict[str, Any]]) -> dict[str, Any]:
         try:
             result = await asyncio.wait_for(coro, timeout=8.0)
             return {"name": name, "status": "ok", **result}
@@ -52,19 +59,6 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
         if connected:
             return {"message": "Neo4j connected"}
         raise ConnectionError("Neo4j unreachable or not configured")
-
-    async def check_senso():
-        key = settings.senso_api_key
-        if not key:
-            raise ValueError("SENSO_API_KEY not set")
-        async with httpx.AsyncClient(timeout=6.0) as c:
-            r = await c.get(
-                "https://sdk.senso.ai/api/v1/content",
-                headers={"X-Api-Key": key, "Content-Type": "application/json"},
-                params={"limit": 1},
-            )
-            r.raise_for_status()
-            return {"message": f"Senso OK — HTTP {r.status_code}"}
 
     async def check_openai():
         key = settings.openai_api_key
@@ -127,24 +121,28 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
         async with httpx.AsyncClient(timeout=6.0) as c:
             r = await c.get(
                 "https://api.github.com/rate_limit",
-                headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"},
             )
             r.raise_for_status()
             remaining = r.json().get("rate", {}).get("remaining", "?")
             return {"message": f"GitHub OK — {remaining} requests remaining"}
 
+    async def run_github_check() -> dict[str, Any]:
+        if not settings.github_token:
+            return {"name": "GitHub", "status": "skipped", "message": "GITHUB_TOKEN not set (optional)"}
+        return await _check("GitHub", check_github())
+
     results = await asyncio.gather(
         _check("PostgreSQL", check_db()),
         _check("Neo4j", check_neo4j()),
-        _check("Senso", check_senso()),
         _check("Yutori", check_yutori()),
         _check("OpenAI", check_openai()),
         _check("Tavily", check_tavily()),
         _check("Fastino", check_fastino()),
-        _check("GitHub", check_github()),
+        run_github_check(),
     )
 
-    all_ok = all(r["status"] == "ok" for r in results)
+    all_ok = all(r["status"] in ("ok", "skipped") for r in results)
     return {
         "overall": "healthy" if all_ok else "degraded",
         "integrations": results,

@@ -396,40 +396,6 @@ export function FindingDetail() {
             </section>
           )}
 
-          {/* 7. Senso historical context — purple brand */}
-          {fix?.sensoHistoricalContext && (
-            <section>
-              <SectionTitle>Intelligence from Previous Scans</SectionTitle>
-              <div
-                style={{
-                  padding: "var(--space-4)",
-                  background: "rgba(147, 51, 234, 0.07)",
-                  border: "1px solid rgba(147, 51, 234, 0.2)",
-                  borderLeft: "3px solid #9333EA",
-                  borderRadius: "var(--radius-md)",
-                  fontSize: "var(--text-small)",
-                  color: "#D8B4FE",
-                  lineHeight: 1.7,
-                  fontStyle: "italic",
-                  display: "flex",
-                  gap: "var(--space-3)",
-                  alignItems: "flex-start",
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "1rem",
-                    flexShrink: 0,
-                    filter: "drop-shadow(0 0 6px rgba(147, 51, 234, 0.6))",
-                  }}
-                  className="animate-brain"
-                >
-                  🧠
-                </span>
-                <span>{fix.sensoHistoricalContext}</span>
-              </div>
-            </section>
-          )}
         </div>
       </div>
     </>

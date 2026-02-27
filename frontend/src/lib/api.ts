@@ -8,8 +8,6 @@ import type {
   VulnerabilityChain,
   GraphNode,
   GraphEdge,
-  SensoSearchResult,
-  SensoGenerateResult,
 } from "@/types/shared";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -60,19 +58,4 @@ export const api = {
       `/analysis/${id}/graph?${qs}`
     );
   },
-
-  sensoSearch: (id: string, query: string, maxResults = 5) =>
-    request<SensoSearchResult>(
-      `/analysis/${id}/senso/search`,
-      { method: "POST", body: JSON.stringify({ query, maxResults }) }
-    ),
-
-  sensoGenerate: (id: string, prompt: string, contextQuery?: string, saveResult = true) =>
-    request<SensoGenerateResult>(
-      `/analysis/${id}/senso/generate`,
-      {
-        method: "POST",
-        body: JSON.stringify({ prompt, context_query: contextQuery, save_result: saveResult }),
-      }
-    ),
 };

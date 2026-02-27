@@ -15,8 +15,6 @@
    - 2.4 GET /analysis/:id/chains
    - 2.5 GET /analysis/:id/fixes
    - 2.6 GET /analysis/:id/graph
-   - 2.7 POST /analysis/:id/senso/search
-   - 2.8 POST /analysis/:id/senso/generate
 3. WebSocket Protocol
 4. Shared Types — TypeScript (Frontend) & Pydantic (Backend)
 5. Component ↔ Endpoint Mapping
@@ -91,7 +89,6 @@ All responses follow this pattern:
 | Finding | `fnd_` | `fnd_001` |
 | Fix | `fix_` | `fix_001` |
 | Chain | `chain_` | `chain_001` |
-| Senso Content | `cnt_` | `cnt_abc123` |
 
 ### Frontend API Client Configuration
 
@@ -147,7 +144,6 @@ interface AnalyzeRequest {
   branch?: string;
   scope?: 'full' | 'security-only' | 'quality-only';
   maxFiles?: number;
-  useSensoIntelligence?: boolean;
 }
 ```
 
@@ -158,7 +154,6 @@ class AnalyzeRequest(BaseModel):
     branch: str | None = None
     scope: Literal["full", "security-only", "quality-only"] = "full"
     max_files: int = Field(default=500, alias="maxFiles")
-    use_senso_intelligence: bool = Field(default=True, alias="useSensoIntelligence")
 
     model_config = ConfigDict(populate_by_name=True)
 ```
@@ -171,8 +166,7 @@ POST http://localhost:8000/api/v1/analyze
   "repoUrl": "https://github.com/user/repo",
   "branch": "main",
   "scope": "full",
-  "maxFiles": 500,
-  "useSensoIntelligence": true
+  "maxFiles": 500
 }
 ```
 
@@ -219,7 +213,7 @@ class AnalyzeResponse(BaseModel):
 | 400 | `REPO_TOO_LARGE` | Exceeds max file limit |
 | 404 | `REPO_NOT_FOUND` | GitHub returns 404 |
 | 429 | `RATE_LIMITED` | Too many concurrent analyses |
-| 503 | `SERVICE_UNAVAILABLE` | Neo4j/Senso/LLM unreachable |
+| 503 | `SERVICE_UNAVAILABLE` | Neo4j/LLM unreachable |
 
 ---
 
@@ -268,11 +262,6 @@ interface AnalysisResult {
   findings: { critical: number; warning: number; info: number; total: number };
   vulnerabilityChains: number;
   fixesGenerated: number;
-  sensoIntelligence: {
-    crossRepoPatterns: number;
-    previousFixesApplied: number;
-    knowledgeBaseContributions: number;
-  };
   timestamps: { startedAt: string; completedAt: string | null; duration: number | null };
 }
 
@@ -301,11 +290,6 @@ class FindingsSummary(BaseModel):
     info: int
     total: int
 
-class SensoIntelligenceSummary(BaseModel):
-    cross_repo_patterns: int = Field(alias="crossRepoPatterns")
-    previous_fixes_applied: int = Field(alias="previousFixesApplied")
-    knowledge_base_contributions: int = Field(alias="knowledgeBaseContributions")
-
 class Timestamps(BaseModel):
     started_at: str = Field(alias="startedAt")
     completed_at: str | None = Field(None, alias="completedAt")
@@ -323,7 +307,6 @@ class AnalysisResult(BaseModel):
     findings: FindingsSummary
     vulnerability_chains: int = Field(alias="vulnerabilityChains")
     fixes_generated: int = Field(alias="fixesGenerated")
-    senso_intelligence: SensoIntelligenceSummary = Field(alias="sensoIntelligence")
     timestamps: Timestamps
 
     model_config = ConfigDict(populate_by_name=True, by_alias=True)
@@ -367,11 +350,6 @@ class AnalysisResult(BaseModel):
   "findings": { "critical": 3, "warning": 12, "info": 24, "total": 39 },
   "vulnerabilityChains": 4,
   "fixesGenerated": 15,
-  "sensoIntelligence": {
-    "crossRepoPatterns": 3,
-    "previousFixesApplied": 2,
-    "knowledgeBaseContributions": 39
-  },
   "timestamps": {
     "startedAt": "2026-02-27T18:30:00Z",
     "completedAt": "2026-02-27T18:30:42Z",
@@ -443,7 +421,6 @@ async def get_findings(
       },
       "chainIds": ["chain_001", "chain_003"],
       "fixId": "fix_001",
-      "sensoContentId": "cnt_abc123",
       "confidence": 0.95
     }
   ],
@@ -521,9 +498,7 @@ async def get_findings(
         "beforeCode": "const filePath = path.join(uploadDir, req.params.filename)",
         "afterCode": "const filePath = path.resolve(uploadDir, path.basename(req.params.filename))",
         "migrationGuideUrl": "https://expressjs.com/en/guide/migrating-5.html"
-      },
-      "sensoContentId": "cnt_fix001",
-      "sensoHistoricalContext": "This same CVE was fixed in 2 previous repos. Average fix time: 25 minutes."
+      }
     }
   ],
   "summary": {
@@ -592,63 +567,6 @@ async def get_graph(
     }
   ],
   "layout": { "type": "hierarchical", "direction": "TB" }
-}
-```
-
----
-
-### 2.7 `POST /analysis/{analysisId}/senso/search`
-
-**Purpose:** Natural language query against Senso knowledge base.
-
-**Frontend caller:** `<SensoIntelligencePanel />` search box
-
-#### Request
-
-```json
-{ "query": "What security patterns have been seen across all scanned repos?", "maxResults": 5 }
-```
-
-#### Response — 200 OK
-
-```json
-{
-  "answer": "Based on 10 scanned repositories, the three most common...",
-  "sources": [
-    { "contentId": "cnt_abc123", "title": "CVE-2024-29041 in user/project-a", "score": 0.92, "chunkText": "Express 4.17.1 path traversal..." }
-  ],
-  "processingTimeMs": 234,
-  "totalResults": 5
-}
-```
-
----
-
-### 2.8 `POST /analysis/{analysisId}/senso/generate`
-
-**Purpose:** Generate content from Senso knowledge base.
-
-**Frontend caller:** `<SensoIntelligencePanel />` generate button
-
-#### Request
-
-```json
-{
-  "contentType": "executive security summary",
-  "instructions": "Generate a one-page executive summary of all critical findings",
-  "save": true,
-  "maxResults": 10
-}
-```
-
-#### Response — 200 OK
-
-```json
-{
-  "generatedText": "# Security Intelligence Summary\n\n## Critical Findings...",
-  "sources": [{ "contentId": "cnt_abc123", "title": "...", "score": 0.91 }],
-  "processingTimeMs": 1234,
-  "savedContentId": "cnt_gen_001"
 }
 ```
 
@@ -740,11 +658,6 @@ class WebSocketBroadcaster:
             "findingsCount": count, "durationMs": duration_ms, "provider": provider,
         })
 
-    async def send_senso_intelligence(self, insight: str, source_count: int):
-        await ws_manager.broadcast(self.analysis_id, {
-            "type": "senso_intelligence", "insight": insight, "sourceCount": source_count,
-        })
-
     async def send_complete(self, health_score, findings_summary):
         await ws_manager.broadcast(self.analysis_id, {
             "type": "complete",
@@ -778,7 +691,6 @@ type WSMessage =
   | WSGraphNode
   | WSGraphEdge
   | WSAgentComplete
-  | WSSensoIntelligence
   | WSComplete
   | WSError;
 
@@ -813,12 +725,6 @@ interface WSAgentComplete {
   provider: 'fastino' | 'openai' | 'tavily';
 }
 
-interface WSSensoIntelligence {
-  type: 'senso_intelligence';
-  insight: string;
-  sourceCount: number;
-}
-
 interface WSComplete {
   type: 'complete';
   healthScore: HealthScore;
@@ -833,7 +739,7 @@ interface WSError {
   recoverable: boolean;
 }
 
-type AgentName = 'orchestrator' | 'mapper' | 'quality' | 'pattern' | 'security' | 'doctor' | 'senso';
+type AgentName = 'orchestrator' | 'mapper' | 'quality' | 'pattern' | 'security' | 'doctor';
 ```
 
 ### Message Sequence (Typical Scan)
@@ -852,14 +758,11 @@ type AgentName = 'orchestrator' | 'mapper' | 'quality' | 'pattern' | 'security' 
 ← status: { agent: "security", status: "running", message: "Searching for CVEs..." }
 ← finding: { finding: { id: "fnd_001", severity: "critical", title: "CVE-2024-29041..." } }
 ← finding: { finding: { id: "fnd_002", severity: "warning", title: "Unhandled error..." } }
-← senso_intelligence: { insight: "Similar vulnerability found in 2 previous repos", sourceCount: 2 }
 ← agent_complete: { agent: "security", findingsCount: 15, provider: "tavily" }
 ← agent_complete: { agent: "quality", findingsCount: 12, provider: "fastino" }
 ← agent_complete: { agent: "pattern", findingsCount: 8, provider: "fastino" }
 ← status: { agent: "doctor", status: "running", message: "Generating fix documentation..." }
 ← agent_complete: { agent: "doctor", findingsCount: 15, provider: "openai" }
-← status: { agent: "senso", status: "running", message: "Persisting to knowledge base..." }
-← agent_complete: { agent: "senso", findingsCount: 39, provider: "senso" }
 ← complete: { healthScore: { overall: 73, letterGrade: "B-" }, duration: 42 }
 ```
 
@@ -879,7 +782,7 @@ export type AgentName = 'quality' | 'pattern' | 'security';
 export type GraphViewMode = 'structure' | 'dependencies' | 'vulnerabilities';
 export type AnalysisStatus = 'queued' | 'cloning' | 'mapping' | 'analyzing' | 'completing' | 'completed' | 'failed';
 export type CategoryStatus = 'healthy' | 'warning' | 'critical';
-export type LLMProvider = 'fastino' | 'openai' | 'tavily' | 'senso';
+export type LLMProvider = 'fastino' | 'openai' | 'tavily';
 
 // ============================================================
 // HEALTH SCORE
@@ -915,7 +818,6 @@ export interface Finding {
   cve?: CVEInfo;
   chainIds: string[];
   fixId?: string;
-  sensoContentId?: string;
   confidence: number;
 }
 
@@ -953,8 +855,6 @@ export interface Fix {
   chainsResolved: number;
   findingsResolved: string[];
   documentation: FixDocumentation;
-  sensoContentId?: string;
-  sensoHistoricalContext?: string;
 }
 
 export interface FixDocumentation {
@@ -1021,44 +921,11 @@ export interface GraphEdge {
 }
 
 // ============================================================
-// SENSO INTELLIGENCE
-// ============================================================
-
-export interface SensoSearchResult {
-  answer: string;
-  sources: SensoSource[];
-  processingTimeMs: number;
-  totalResults: number;
-}
-
-export interface SensoSource {
-  contentId: string;
-  title: string;
-  score: number;
-  chunkText: string;
-}
-
-export interface SensoInsight {
-  type: 'pattern' | 'historical_fix' | 'cross_repo';
-  title: string;
-  description: string;
-  reposAffected: number;
-  sourceContentIds: string[];
-}
-
-export interface SensoGenerateResult {
-  generatedText: string;
-  sources: { contentId: string; title: string; score: number }[];
-  processingTimeMs: number;
-  savedContentId?: string;
-}
-
-// ============================================================
 // AGENT STATUS
 // ============================================================
 
 export interface AgentStatus {
-  name: AgentName | 'orchestrator' | 'doctor' | 'senso' | 'mapper';
+  name: AgentName | 'orchestrator' | 'doctor' | 'mapper';
   status: 'pending' | 'running' | 'complete' | 'error';
   progress: number;
   message: string;
@@ -1082,11 +949,11 @@ from pydantic import BaseModel, Field, ConfigDict
 
 Severity = Literal["critical", "warning", "info"]
 AgentName = Literal["quality", "pattern", "security"]
-FullAgentName = Literal["orchestrator", "mapper", "quality", "pattern", "security", "doctor", "senso"]
+FullAgentName = Literal["orchestrator", "mapper", "quality", "pattern", "security", "doctor"]
 GraphViewMode = Literal["structure", "dependencies", "vulnerabilities"]
 AnalysisStatus = Literal["queued", "cloning", "mapping", "analyzing", "completing", "completed", "failed"]
 CategoryStatus = Literal["healthy", "warning", "critical"]
-LLMProvider = Literal["fastino", "openai", "tavily", "senso"]
+LLMProvider = Literal["fastino", "openai", "tavily"]
 
 # ============================================================
 # HEALTH SCORE
@@ -1141,7 +1008,6 @@ class Finding(BaseModel):
     cve: CVEInfo | None = None
     chain_ids: list[str] = Field(default_factory=list, alias="chainIds")
     fix_id: str | None = Field(None, alias="fixId")
-    senso_content_id: str | None = Field(None, alias="sensoContentId")
     confidence: float
     model_config = ConfigDict(populate_by_name=True, by_alias=True)
 
@@ -1173,8 +1039,6 @@ class Fix(BaseModel):
     chains_resolved: int = Field(alias="chainsResolved")
     findings_resolved: list[str] = Field(alias="findingsResolved")
     documentation: FixDocumentation
-    senso_content_id: str | None = Field(None, alias="sensoContentId")
-    senso_historical_context: str | None = Field(None, alias="sensoHistoricalContext")
     model_config = ConfigDict(populate_by_name=True, by_alias=True)
 
 class FixSummary(BaseModel):
@@ -1237,30 +1101,6 @@ class GraphResponse(BaseModel):
     edges: list[GraphEdge]
     layout: dict[str, str]
 
-# ============================================================
-# SENSO INTELLIGENCE
-# ============================================================
-
-class SensoSource(BaseModel):
-    content_id: str = Field(alias="contentId")
-    title: str
-    score: float
-    chunk_text: str = Field(alias="chunkText")
-    model_config = ConfigDict(populate_by_name=True, by_alias=True)
-
-class SensoSearchResult(BaseModel):
-    answer: str
-    sources: list[SensoSource]
-    processing_time_ms: int = Field(alias="processingTimeMs")
-    total_results: int = Field(alias="totalResults")
-    model_config = ConfigDict(populate_by_name=True, by_alias=True)
-
-class SensoGenerateResult(BaseModel):
-    generated_text: str = Field(alias="generatedText")
-    sources: list[dict]
-    processing_time_ms: int = Field(alias="processingTimeMs")
-    saved_content_id: str | None = Field(None, alias="savedContentId")
-    model_config = ConfigDict(populate_by_name=True, by_alias=True)
 ```
 
 **Key Pydantic Convention:** All models use `by_alias=True` serialization so the JSON output uses camelCase (matching the TypeScript frontend types), while Python code uses snake_case internally.
@@ -1283,9 +1123,6 @@ class SensoGenerateResult(BaseModel):
 | `<FindingDetail />` | `GET /analysis/:id/chains` | When finding has `chainIds` | Matching `VulnerabilityChain` |
 | `<FindingDetail />` | `GET /analysis/:id/fixes` | When finding has `fixId` | Matching `Fix` object |
 | `<FixPlan />` | `GET /analysis/:id/fixes` | Tab click / auto-load | `fixes[]`, `summary` |
-| `<SensoIntelligencePanel />` | `POST /analysis/:id/senso/search` | User query submit | `answer`, `sources` |
-| `<SensoIntelligencePanel />` | `POST /analysis/:id/senso/generate` | Generate button | `generatedText`, `sources` |
-| `<SensoIntelligencePanel />` | `GET /analysis/:id` | Auto-load | `sensoIntelligence` summary |
 
 ---
 
@@ -1330,7 +1167,6 @@ interface ErrorResponse {
 | `AGENT_FAILED` | 500 | Agent execution failed (include `agent` in details) |
 | `LLM_UNAVAILABLE` | 503 | Fastino/OpenAI API unreachable |
 | `NEO4J_UNAVAILABLE` | 503 | Neo4j database unreachable |
-| `SENSO_UNAVAILABLE` | 503 | Senso API unreachable |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
 
 ### WebSocket Error Recovery
@@ -1384,7 +1220,7 @@ States and what's happening:
   CLONING    → asyncio.create_subprocess_exec git clone
   MAPPING    → Mapper Agent building Neo4j graph (Fastino extraction)
   ANALYZING  → Quality + Pattern + Security via asyncio.TaskGroup
-  COMPLETING → Doctor Agent + Senso Agent
+  COMPLETING → Doctor Agent
   COMPLETED  → All results available, Health Score computed
   FAILED     → Unrecoverable error (check agentStatuses)
 ```
@@ -1398,7 +1234,7 @@ States and what's happening:
 | `mapping` | Progress bar + graph building (live nodes) | Score, findings |
 | `analyzing` | Progress bars per agent + live findings | Final score |
 | `completing` | "Generating fixes..." + partial findings | — |
-| `completed` | Full dashboard: score, graph, findings, fixes, Senso | Progress bars |
+| `completed` | Full dashboard: score, graph, findings, fixes | Progress bars |
 | `failed` | Error message + retry button | Dashboard |
 
 ---

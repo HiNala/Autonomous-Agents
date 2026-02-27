@@ -9,7 +9,6 @@ const SPONSORS: Array<{
   tagline: string;
 }> = [
   { name: "Yutori",  color: "#EC4899", agent: "security",  tagline: "Primary reasoning engine" },
-  { name: "Senso",   color: "#9333EA", agent: "senso",     tagline: "Context OS — cross-repo intelligence" },
   { name: "Neo4j",   color: "#018BFF", agent: "mapper",    tagline: "Knowledge graph engine" },
   { name: "Tavily",  color: "#3B82F6", agent: "security",  tagline: "Fast supplemental web search" },
   { name: "OpenAI",  color: "#22C55E", agent: "doctor",    tagline: "Backup reasoning & structured outputs" },

@@ -10,7 +10,6 @@ import { GraphPanel } from "@/components/graph/GraphPanel";
 import { FindingsPanel } from "@/components/findings/FindingsPanel";
 import { FindingDetail } from "@/components/findings/FindingDetail";
 import { FixPlan } from "@/components/fixes/FixPlan";
-import { SensoIntelligencePanel } from "@/components/senso/SensoIntelligencePanel";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import { useAnalysisWebSocket } from "@/hooks/useAnalysisWebSocket";
 import { api } from "@/lib/api";
@@ -43,7 +42,6 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
   // T+0.0s: score row appears
   // T+0.5s: graph + findings row appears
   // T+1.5s: fix plan appears
-  // T+2.5s: senso panel appears
   const [revealPhase, setRevealPhase] = useState(0);
 
   useEffect(() => {
@@ -51,8 +49,7 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
     const t1 = setTimeout(() => setRevealPhase(1), 50);
     const t2 = setTimeout(() => setRevealPhase(2), 500);
     const t3 = setTimeout(() => setRevealPhase(3), 1500);
-    const t4 = setTimeout(() => setRevealPhase(4), 2500);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [isCompleted]);
 
   return (
@@ -113,17 +110,6 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
             }}
           >
             <FixPlan />
-          </div>
-
-          {/* Row 4 — Senso intelligence */}
-          <div
-            style={{
-              opacity: revealPhase >= 4 ? 1 : 0,
-              transform: revealPhase >= 4 ? "translateY(0)" : "translateY(16px)",
-              transition: "opacity 0.5s ease, transform 0.5s ease",
-            }}
-          >
-            <SensoIntelligencePanel />
           </div>
         </div>
       )}

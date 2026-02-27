@@ -47,7 +47,6 @@ class FindingOut(CamelModel):
     cve: Optional[CVEInfoOut] = None
     chain_ids: list[str] = []
     fix_id: Optional[str] = None
-    senso_content_id: Optional[str] = None
     confidence: float = 0.0
 
 

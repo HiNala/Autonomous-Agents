@@ -40,7 +40,6 @@ class Analysis(Base):
     agent_statuses: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     health_score: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     findings_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    senso_content_ids: Mapped[list | None] = mapped_column(JSON, default=list)
 
     findings: Mapped[list | None] = mapped_column(JSON, nullable=True)
     fixes: Mapped[list | None] = mapped_column(JSON, nullable=True)

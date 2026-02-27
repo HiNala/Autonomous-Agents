@@ -54,7 +54,7 @@ export function AnalysisInput() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await api.analyze({ repoUrl: trimmed, scope: "full", maxFiles: 500, useSensoIntelligence: true });
+      const resp = await api.analyze({ repoUrl: trimmed, scope: "full", maxFiles: 500 });
       startAnalysis(resp.analysisId);
       router.push(`/analysis/${resp.analysisId}`);
     } catch (err: unknown) {

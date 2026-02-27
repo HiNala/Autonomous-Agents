@@ -35,7 +35,6 @@ class AnalyzeRequest(CamelModel):
     branch: Optional[str] = None
     scope: Optional[str] = "full"
     max_files: Optional[int] = 500
-    use_senso_intelligence: Optional[bool] = True
 
 
 class AnalyzeResponse(CamelModel):

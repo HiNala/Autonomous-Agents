@@ -46,7 +46,6 @@ export function providerColor(provider: LLMProvider): string {
     case "fastino": return "#F59E0B";
     case "openai":  return "#22C55E";
     case "tavily":  return "#3B82F6";
-    case "senso":   return "#8B5CF6";
     case "yutori":  return "#EC4899";
     default:        return "var(--text-secondary)";
   }
@@ -60,7 +59,6 @@ export function agentColor(agent: AgentName): string {
     case "pattern":      return "var(--agent-pattern)";
     case "security":     return "var(--agent-security)";
     case "doctor":       return "var(--agent-doctor)";
-    case "senso":        return "var(--agent-senso)";
     default:             return "var(--text-secondary)";
   }
 }

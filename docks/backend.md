@@ -16,21 +16,19 @@
    - 5.2 OpenAI (BACKUP — General Reasoning)
    - 5.3 Tavily (CVE Search & Extraction)
    - 5.4 Neo4j (Knowledge Graph)
-   - 5.5 Senso Context OS (Persistent Knowledge)
-   - 5.6 Yutori (STRETCH — Deep Web Intelligence)
+   - 5.5 Yutori (STRETCH — Deep Web Intelligence)
    - 5.7 AWS (OPTIONAL — Production Infra)
 6. Neo4j Graph Schema
 7. Database & State Schemas
-8. Senso Content Architecture
-9. Processing Pipeline & Data Flow
-10. Build Plan (Backend Focus)
-11. Python Project Structure
+8. Processing Pipeline & Data Flow
+9. Build Plan (Backend Focus)
+10. Python Project Structure
 
 ---
 
 ## 1. VISION & ARCHITECTURE OVERVIEW
 
-VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend is the engine: it clones repos, builds knowledge graphs, runs 6 specialist analysis agents, searches the web for CVEs, generates fix documentation, and persists everything into Senso's Context OS.
+VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend is the engine: it clones repos, builds knowledge graphs, runs 6 specialist analysis agents, searches the web for CVEs, and generates fix documentation.
 
 ### System Diagram
 
@@ -50,24 +48,24 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
 │              FASTAPI BACKEND (localhost:8000)                            │
 │                     ORCHESTRATOR AGENT                                   │
 │  Clone → Detect Stack → Dispatch Agents → Aggregate → Score             │
-└──┬──────────┬──────────┬──────────┬──────────┬──────────┬───────────────┘
-   │          │          │          │          │          │
-   ▼          ▼          ▼          ▼          ▼          ▼
-┌────────┐┌────────┐┌────────┐┌────────┐┌────────┐┌────────────────────┐
-│ MAPPER ││QUALITY ││PATTERN ││SECURITY││ DOCTOR ││ SENSO KNOWLEDGE    │
-│ AGENT  ││ AGENT  ││ AGENT  ││ AGENT  ││ AGENT  ││ AGENT              │
-│        ││        ││        ││        ││        ││                    │
-│ Graph  ││ Bugs & ││ Best   ││ CVEs & ││ Fix    ││ Ingest → Search → │
-│ Build  ││ Smells ││ Prctce ││ Vulns  ││ Docs   ││ Generate → Learn  │
-└────────┘└────────┘└────────┘└────────┘└────────┘└────────────────────┘
-   │          │          │          │          │          │
-   ▼          ▼          ▼          ▼          ▼          ▼
-┌──────────────────┐ ┌───────────────────┐ ┌──────────────────────────┐
-│    NEO4J         │ │ FASTINO (PRIMARY) │ │    SENSO CONTEXT OS      │
-│  Knowledge Graph │ │ + OPENAI (BACKUP) │ │  Persistent Knowledge    │
-│  (Structure +    │ │  (TLMs + LLM      │ │  (Cross-repo intel +     │
-│   Relationships) │ │   Reasoning)      │ │   Searchable findings)   │
-└──────────────────┘ └───────────────────┘ └──────────────────────────┘
+└──┬──────────┬──────────┬──────────┬──────────┬──────────┘
+   │          │          │          │          │
+   ▼          ▼          ▼          ▼          ▼
+┌────────┐┌────────┐┌────────┐┌────────┐┌────────┐
+│ MAPPER ││QUALITY ││PATTERN ││SECURITY││ DOCTOR │
+│ AGENT  ││ AGENT  ││ AGENT  ││ AGENT  ││ AGENT  │
+│        ││        ││        ││        ││        │
+│ Graph  ││ Bugs & ││ Best   ││ CVEs & ││ Fix    │
+│ Build  ││ Smells ││ Prctce ││ Vulns  ││ Docs   │
+└────────┘└────────┘└────────┘└────────┘└────────┘
+   │          │          │          │          │
+   ▼          ▼          ▼          ▼          ▼
+┌──────────────────┐ ┌───────────────────┐
+│    NEO4J         │ │ FASTINO (PRIMARY) │
+│  Knowledge Graph │ │ + OPENAI (BACKUP)  │
+│  (Structure +    │ │  (TLMs + LLM       │
+│   Relationships) │ │   Reasoning)        │
+└──────────────────┘ └───────────────────┘
 ```
 
 ### Split Architecture: Why Python Backend + Next.js Frontend
@@ -97,7 +95,6 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
 | LLM (Demo) | Fastino TLMs + GLiNER-2 | `pip install gliner2` + REST API |
 | LLM (Backup) | OpenAI GPT-4o | `pip install openai` async client |
 | Web Search | Tavily API | `pip install tavily-python` |
-| Knowledge Base | Senso Context OS | `httpx` async HTTP client |
 | State | PostgreSQL via SQLAlchemy (async) | Central analysis store managed via Alembic migrations |
 | Repo Storage | Local `/tmp` directory | Cloned repos via `asyncio.create_subprocess_exec` |
 | Real-time | FastAPI WebSockets | Built-in via Starlette, no extra deps |
@@ -128,7 +125,6 @@ VIBE CHECK is an autonomous multi-agent GitHub repository analyzer. The backend 
 FASTINO_API_KEY=your_fastino_key          # Primary demo inferencing
 OPENAI_API_KEY=sk-...                      # Backup reasoning
 TAVILY_API_KEY=tvly-...                    # CVE search
-SENSO_API_KEY=your_senso_key              # Knowledge persistence
 NEO4J_URI=neo4j+s://xxxx.databases.neo4j.io
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_password
@@ -155,7 +151,6 @@ class Settings(BaseSettings):
     fastino_api_key: str
     openai_api_key: str
     tavily_api_key: str
-    senso_api_key: str
     neo4j_uri: str
     neo4j_username: str = "neo4j"
     neo4j_password: str
@@ -311,7 +306,7 @@ During the demo, the terminal/dashboard will show:
 
 > **Implementation note (current state):**  
 > The production backend currently implements a **minimal `OrchestratorAgent`** that clones the repository, computes basic repository statistics, and streams status updates over WebSocket.  
-> The additional agents described below (Mapper, Quality, Pattern, Security, Doctor, Senso Knowledge) are **planned/roadmap** components and not yet wired into the running service.
+> The additional agents described below (Mapper, Quality, Pattern, Security, Doctor) are **planned/roadmap** components and not yet wired into the running service.
 
 ### Base Agent Pattern
 
@@ -849,15 +844,7 @@ class DoctorAgent(BaseAgent):
     async def execute(self):
         findings = self.ctx.findings
 
-        # Step 1: Query Senso for historical fixes
-        await self.ws.send_status("doctor", "running", 0.1,
-                                  "Searching previous fix documentation...")
-        historical_fixes = await self.ctx.senso.search(
-            query=f"fix documentation for {self.ctx.detected_stack['frameworks'][0]} vulnerabilities",
-            max_results=5,
-        )
-
-        # Step 2: Generate fix docs with OpenAI
+        # Step 1: Generate fix docs with OpenAI
         from openai import AsyncOpenAI
         client = AsyncOpenAI()
 
@@ -875,8 +862,7 @@ class DoctorAgent(BaseAgent):
                     {"role": "system", "content": FIX_DOC_SYSTEM_PROMPT},
                     {"role": "user", "content": (
                         f"Finding: {finding.model_dump_json()}\n"
-                        f"Affected code:\n{graph_context}\n"
-                        f"Historical fixes from Senso:\n{historical_fixes.answer if historical_fixes else 'None'}"
+                        f"Affected code:\n{graph_context}"
                     )},
                 ],
                 response_format={"type": "json_schema", "json_schema": FIX_DOC_SCHEMA},
@@ -892,65 +878,6 @@ class DoctorAgent(BaseAgent):
         ))
         for i, fix in enumerate(self.ctx.fixes):
             fix.priority = i + 1
-```
-
-### Agent 7: SENSO KNOWLEDGE AGENT
-
-```python
-# app/agents/senso_knowledge.py
-class SensoKnowledgeAgent(BaseAgent):
-    name = "senso"
-    provider = "senso"
-
-    async def execute(self):
-        # Post-scan ingestion: persist all findings to Senso
-        await self.ws.send_status("senso", "running", 0.1,
-                                  "Persisting findings to knowledge base...")
-
-        # Ingest each finding
-        for i, finding in enumerate(self.ctx.findings):
-            progress = 0.1 + (i / len(self.ctx.findings)) * 0.4
-            content_id = await self.ctx.senso.ingest_content(
-                title=finding.title,
-                summary=f"{finding.severity}: {finding.description[:100]}",
-                text=finding.to_senso_markdown(),
-                category_id=self._get_category_id(finding),
-                topic_id=self._get_topic_id(finding),
-            )
-            finding.senso_content_id = content_id
-
-        # Ingest each fix
-        await self.ws.send_status("senso", "running", 0.6, "Persisting fix documentation...")
-        for fix in self.ctx.fixes:
-            content_id = await self.ctx.senso.ingest_content(
-                title=f"FIX: {fix.title}",
-                summary=fix.documentation.whats_wrong[:100],
-                text=fix.to_senso_markdown(),
-                category_id=self.ctx.senso_ids["fix_documentation"],
-                topic_id=self._get_fix_topic_id(fix),
-            )
-            fix.senso_content_id = content_id
-
-        # Ingest repo profile
-        await self.ws.send_status("senso", "running", 0.8, "Creating repo profile...")
-        await self.ctx.senso.ingest_content(
-            title=f"Repo Profile: {self.ctx.repo_name}",
-            summary=f"{self.ctx.detected_stack['frameworks'][0]} app, "
-                    f"{self.ctx.stats['totalFiles']} files, "
-                    f"Health Score: {self.ctx.health_score.letter_grade}",
-            text=self._build_repo_profile_markdown(),
-            category_id=self.ctx.senso_ids["repository_profiles"],
-            topic_id=self.ctx.senso_ids["health_scores"],
-        )
-
-        # Generate cross-repo intelligence
-        await self.ws.send_status("senso", "running", 0.9, "Generating cross-repo intelligence...")
-        intelligence = await self.ctx.senso.generate(
-            prompt_id=self.ctx.senso_ids["cross_repo_analyzer"],
-            content_type="security findings",
-        )
-        if intelligence:
-            await self.ws.send_senso_intelligence(intelligence.answer, intelligence.source_count)
 ```
 
 ---
@@ -1157,98 +1084,7 @@ Full schema defined in Section 6 below.
 
 ---
 
-### 5.5 SENSO CONTEXT OS — Persistent Knowledge Layer
-
-**Base URL:** `https://sdk.senso.ai/api/v1`
-**Python Client:** `httpx` async client (no official SDK)
-
-```python
-# app/clients/senso_client.py
-import httpx
-from app.core.config import settings
-
-class SensoClient:
-    BASE_URL = "https://sdk.senso.ai/api/v1"
-
-    def __init__(self):
-        self._client = httpx.AsyncClient(
-            base_url=self.BASE_URL,
-            headers={
-                "X-API-Key": settings.senso_api_key,
-                "Content-Type": "application/json",
-            },
-            timeout=30.0,
-        )
-
-    async def create_categories_batch(self, categories: list[dict]) -> dict:
-        resp = await self._client.post("/categories/batch", json=categories)
-        resp.raise_for_status()
-        return resp.json()
-
-    async def ingest_content(self, title: str, summary: str, text: str,
-                             category_id: str, topic_id: str) -> str:
-        resp = await self._client.post("/content/raw", json={
-            "title": title, "summary": summary, "text": text,
-            "category_id": category_id, "topic_id": topic_id,
-        })
-        resp.raise_for_status()
-        content_id = resp.json()["id"]
-        await self._poll_processing(content_id)
-        return content_id
-
-    async def search(self, query: str, max_results: int = 5) -> dict:
-        resp = await self._client.post("/search", json={
-            "query": query, "max_results": max_results,
-        })
-        resp.raise_for_status()
-        return resp.json()
-
-    async def generate(self, prompt_id: str = None, instructions: str = None,
-                       content_type: str = None, save: bool = False) -> dict:
-        body = {"save": save}
-        if prompt_id:
-            resp = await self._client.post("/generate/prompt", json={
-                "prompt_id": prompt_id, "content_type": content_type, **body,
-            })
-        else:
-            resp = await self._client.post("/generate", json={
-                "instructions": instructions, **body,
-            })
-        resp.raise_for_status()
-        return resp.json()
-
-    async def _poll_processing(self, content_id: str, max_wait: int = 30):
-        import asyncio
-        for _ in range(max_wait):
-            resp = await self._client.get(f"/content/{content_id}")
-            if resp.json().get("processing_status") == "completed":
-                return
-            await asyncio.sleep(1)
-
-    async def close(self):
-        await self._client.aclose()
-```
-
-#### Complete Endpoint Reference
-
-| Endpoint | Method | When | Purpose |
-|----------|--------|------|---------|
-| `/categories/batch` | POST | App init | Batch create 5 categories + 14 topics |
-| `/prompts` | POST | App init | Create 4 reusable analysis prompts |
-| `/templates` | POST | App init | Create 2 output templates |
-| `/content/raw` | POST | Per finding/fix/profile | **PRIMARY** — Ingest to knowledge base |
-| `/content/{id}` | GET | After ingest | Poll processing status |
-| `/content` | GET | Dashboard | List all knowledge base content |
-| `/search` | POST | Pre-scan + dashboard | **PRIMARY** — NL search, cited answers |
-| `/generate` | POST | Post-scan | Generate summaries |
-| `/generate/prompt` | POST | Post-scan | Prompt-driven content generation |
-| `/rules` | POST | Setup (stretch) | Classification rules |
-| `/webhooks` | POST | Setup (stretch) | Alert destinations |
-| `/triggers` | POST | Setup (stretch) | Link rules to webhooks |
-
----
-
-### 5.6 YUTORI — Deep Web Intelligence (STRETCH)
+### 5.5 YUTORI — Deep Web Intelligence (STRETCH)
 
 **Base URL:** `https://api.yutori.com`
 **Python SDK:** `pip install yutori`
@@ -1287,12 +1123,11 @@ Only used if Tavily results are insufficient for complex CVE chains.
            latestVersion, cveCount: int})
 (:Finding {id, type, severity, title, description, plainDescription,
            location, startLine, endLine, blastRadius: int,
-           agent, confidence: float, sensoContentId})
+           agent, confidence: float})
 (:VulnerabilityChain {id, description, steps: int, severity, entryPoint, exitPoint})
 (:CVE {id, cvssScore: float, description, fixedVersion, exploitAvailable: boolean})
 (:Fix {id, title, priority: int, estimatedEffort, description,
-       beforeCode, afterCode, sensoContentId})
-(:SensoContent {id, sensoId, title, categoryId, topicId, processingStatus})
+       beforeCode, afterCode})
 ```
 
 ### Relationships
@@ -1314,9 +1149,6 @@ Only used if Tavily results are insufficient for complex CVE chains.
 (fix)-[:RESOLVES]->(finding)
 (fix)-[:MODIFIES]->(file)
 (fix)-[:UPGRADES]->(package)
-(finding)-[:PERSISTED_IN]->(sensoContent)
-(fix)-[:PERSISTED_IN]->(sensoContent)
-(repo)-[:PROFILED_IN]->(sensoContent)
 ```
 
 ---
@@ -1369,7 +1201,6 @@ class Analysis(Base):
     agent_statuses: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     health_score: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     findings_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    senso_content_ids: Mapped[list | None] = mapped_column(JSON, default=list)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -1412,64 +1243,7 @@ At runtime, the FastAPI lifespan hook creates any missing tables using `Base.met
 
 ---
 
-## 8. SENSO CONTENT ARCHITECTURE
-
-### Taxonomy (5 Categories, 14 Topics)
-
-| Category | Topics |
-|----------|--------|
-| Security Vulnerabilities | Dependency CVEs, Code Vulnerabilities, Configuration Issues, Vulnerability Chains |
-| Code Quality | Bugs, Code Smells, Dead Code, Complexity Hotspots |
-| Architecture & Patterns | Framework Best Practices, Anti-Patterns, Project Structure |
-| Fix Documentation | Dependency Upgrades, Security Patches, Refactoring Guides |
-| Repository Profiles | Health Scores, Tech Stack Analysis |
-
-### Initialization (app startup)
-
-```python
-# app/services/senso_init.py
-async def init_senso_taxonomy(senso: SensoClient) -> dict:
-    """Create all categories, topics, prompts, templates on app startup."""
-    result = await senso.create_categories_batch(TAXONOMY_PAYLOAD)
-
-    prompts = {}
-    for prompt_data in PROMPTS:
-        resp = await senso._client.post("/prompts", json=prompt_data)
-        prompts[prompt_data["name"]] = resp.json()["id"]
-
-    templates = {}
-    for template_data in TEMPLATES:
-        resp = await senso._client.post("/templates", json=template_data)
-        templates[template_data["name"]] = resp.json()["id"]
-
-    return {"categories": result, "prompts": prompts, "templates": templates}
-```
-
-### Processing Flows
-
-```
-APP STARTUP (lifespan):
-  init_db() → create SQLite tables
-  init_senso_taxonomy() → POST /categories/batch, /prompts, /templates → store IDs
-
-PRE-SCAN:
-  POST /search { "vulnerabilities in [framework]" } → historical intel
-  → Feed to Doctor Agent
-
-POST-SCAN:
-  For each finding: POST /content/raw → poll → content_id
-  For each fix: POST /content/raw → content_id
-  Repo profile: POST /content/raw → content_id
-  POST /generate/prompt { cross_repo_analyzer }
-
-DASHBOARD QUERIES:
-  POST /search { user_query } → cited answers
-  POST /generate { instructions } → generated reports
-```
-
----
-
-## 9. PROCESSING PIPELINE & DATA FLOW
+## 8. PROCESSING PIPELINE & DATA FLOW
 
 ### Current Implementation (MVP)
 
@@ -1504,7 +1278,6 @@ POST /api/v1/analyze → 202 Accepted → analysis_id
 ORCHESTRATOR
   ├── git clone → /tmp/vibe-check/repos/anl_abc123/
   ├── Detect stack: Fastino classify_text → "Next.js + TypeScript"
-  ├── Pre-scan Senso search → historical intelligence
   └── Dispatch agents
   │
   ▼
@@ -1527,18 +1300,9 @@ QUALITY AGENT                     PATTERN AGENT                     SECURITY AGE
   ▼
 DOCTOR AGENT
   ├── Collect all findings
-  ├── Senso search → historical fixes
-  ├── OpenAI generate fix docs (with graph context + Senso intel)
+  ├── OpenAI generate fix docs (with graph context)
   ├── Priority ordering
   └── Fix nodes → Neo4j
-  │
-  ▼
-SENSO KNOWLEDGE AGENT
-  ├── POST /content/raw per finding
-  ├── POST /content/raw per fix
-  ├── POST /content/raw repo profile
-  ├── POST /generate/prompt → cross-repo patterns
-  └── Return intelligence to dashboard
   │
   ▼
 HEALTH SCORE COMPUTATION
@@ -1547,22 +1311,21 @@ HEALTH SCORE COMPUTATION
 
 ---
 
-## 10. BUILD PLAN (BACKEND FOCUS)
+## 9. BUILD PLAN (BACKEND FOCUS)
 
 | Time | Backend Focus | Sponsor Integration |
 |------|--------------|-------------------|
-| 0:00-0:30 | **FastAPI scaffold**: uvicorn, CORS, routes, WebSocket endpoint, Pydantic models, SQLite init, all clients instantiated | Senso taxonomy batch-created |
+| 0:00-0:30 | **FastAPI scaffold**: uvicorn, CORS, routes, WebSocket endpoint, Pydantic models, SQLite init, all clients instantiated | — |
 | 0:30-1:15 | **Mapper Agent**: git clone, file walk, Fastino classify/extract, Neo4j graph build, WS streaming | Fastino GLiNER-2 entity extraction |
 | 1:15-1:45 | **WebSocket broadcaster**: message routing, agent status tracking, graph node/edge streaming | — |
 | 1:45-2:30 | **Quality + Pattern agents**: Fastino classify → OpenAI deep analysis, findings to Neo4j | Fastino classification + OpenAI reasoning |
 | 2:30-3:15 | **Security Agent**: Tavily search/extract → Fastino CVE parsing → OpenAI chains | Tavily + Fastino + OpenAI + Neo4j |
-| 3:15-4:00 | **Doctor Agent + Senso Intelligence**: fix doc gen, historical fix search | Senso search/generate + OpenAI |
-| 4:00-4:30 | **Senso Knowledge Agent**: post-scan ingestion, pre-scan intel | Full Senso integration |
-| 4:30-5:00 | **Polish**: error handling, demo repo caching, timeout guards, health score algo | — |
+| 3:15-4:00 | **Doctor Agent**: fix doc gen | OpenAI |
+| 4:00-4:30 | **Polish**: error handling, demo repo caching, timeout guards, health score algo | — |
 
 ---
 
-## 11. PYTHON PROJECT STRUCTURE
+## 10. PYTHON PROJECT STRUCTURE
 
 ### Current Backend Layout
 
@@ -1599,9 +1362,9 @@ backend/
 
 The following modules and directories are part of the **target architecture** and are not yet implemented:
 
-- Additional agents: `MapperAgent`, `QualityAgent`, `PatternAgent`, `SecurityAgent`, `DoctorAgent`, `SensoKnowledgeAgent`
-- External clients: `fastino.py`, `openai_client.py`, `tavily_client.py`, `neo4j_client.py`, `senso_client.py`
-- Neo4j graph layer, Senso initialization services, and LLM prompt files
+- Additional agents: `MapperAgent`, `QualityAgent`, `PatternAgent`, `SecurityAgent`, `DoctorAgent`
+- External clients: `fastino.py`, `openai_client.py`, `tavily_client.py`, `neo4j_client.py`
+- Neo4j graph layer and LLM prompt files
 
 ### requirements.txt
 
@@ -1629,7 +1392,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.lifespan import lifespan
-from app.api import analyze, analysis, senso, ws
+from app.api import analyze, analysis, ws
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1637,21 +1400,16 @@ async def lifespan(app: FastAPI):
     from app.db.repository import init_db
     from app.clients.fastino import FastinoClient
     from app.clients.neo4j_client import Neo4jClient
-    from app.clients.senso_client import SensoClient
-    from app.services.senso_init import init_senso_taxonomy
 
     await init_db()
     app.state.fastino = FastinoClient()
     app.state.neo4j = Neo4jClient()
-    app.state.senso = SensoClient()
-    app.state.senso_ids = await init_senso_taxonomy(app.state.senso)
 
     yield
 
     # Shutdown
     await app.state.fastino.close()
     await app.state.neo4j.close()
-    await app.state.senso.close()
 
 app = FastAPI(
     title="VIBE CHECK API",
@@ -1669,7 +1427,6 @@ app.add_middleware(
 
 app.include_router(analyze.router, prefix="/api/v1")
 app.include_router(analysis.router, prefix="/api/v1")
-app.include_router(senso.router, prefix="/api/v1")
 app.include_router(ws.router)
 
 if __name__ == "__main__":
@@ -1686,7 +1443,6 @@ if __name__ == "__main__":
 | **Fastino** | ESSENTIAL | Primary demo inferencing — TLMs + GLiNER-2 via Python SDK. 99x faster. The speed story. |
 | **OpenAI** | ESSENTIAL | Backup reasoning — async Python SDK. Complex code analysis, chains, docs. The depth story. |
 | **Neo4j** | ESSENTIAL | Codebase knowledge graph — async Python driver. The product IS the graph. |
-| **Senso** | ESSENTIAL | Persistent knowledge — httpx async client. Cross-repo intelligence. The learning story. |
 | **Tavily** | ESSENTIAL | CVE web search — tavily-python async client. The security data source. |
 | **Yutori** | STRETCH | Deep web research + continuous monitoring. |
 | **AWS** | OPTIONAL | Production deployment via Mangum (Lambda adapter for FastAPI). |

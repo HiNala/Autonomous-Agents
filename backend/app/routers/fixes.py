@@ -35,8 +35,6 @@ class FixOut(CamelModel):
     chains_resolved: int = 0
     findings_resolved: list[str] = []
     documentation: FixDocumentationOut = FixDocumentationOut()
-    senso_content_id: Optional[str] = None
-    senso_historical_context: Optional[str] = None
 
 
 class FixSummaryOut(CamelModel):

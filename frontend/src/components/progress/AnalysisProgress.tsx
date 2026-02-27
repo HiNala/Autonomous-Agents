@@ -11,7 +11,7 @@ const GraphCanvas = dynamic(
   { ssr: false }
 );
 
-const AGENTS: AgentName[] = ["orchestrator", "mapper", "quality", "pattern", "security", "doctor", "senso"];
+const AGENTS: AgentName[] = ["orchestrator", "mapper", "quality", "pattern", "security", "doctor"];
 
 const AGENT_LABELS: Record<AgentName, string> = {
   orchestrator: "Orchestrator",
@@ -20,14 +20,12 @@ const AGENT_LABELS: Record<AgentName, string> = {
   pattern:      "Pattern",
   security:     "Security",
   doctor:       "Doctor",
-  senso:        "Senso",
 };
 
 const PROVIDER_LABELS: Record<LLMProvider, string> = {
   fastino: "⚡ Fastino",
   openai:  "OpenAI",
   tavily:  "Tavily",
-  senso:   "Senso",
   yutori:  "Yutori",
 };
 
