@@ -2,13 +2,15 @@
 Analysis pipeline — orchestrates the full repo-analysis flow.
 
 Flow:
-  1. Clone repository (git)
-  2. Metadata ingestion (file walk, dependency detection, function/endpoint counting)
-  3. OpenAI: classify files, extract code-quality findings
-  4. Tavily: search for CVEs in detected dependencies
-  5. Yutori: deep web research on vulnerabilities
-  6. OpenAI: deep reasoning on findings, generate fixes
-  7. Neo4j: build knowledge graph
+  1. Clone repository (GitHub/git)
+  2. Metadata ingestion (file walk, dependency detection) + Fastino: classify files
+  3. Tavily: search for CVEs in detected dependencies
+  3b. Tavily extract + Fastino: parse CVE entities from advisory pages
+  4. Fastino + OpenAI: code quality analysis
+  5. Yutori (or OpenAI fallback): deep web research on vulnerabilities
+  6. OpenAI: deep pattern/architecture analysis
+  7. Neo4j: build knowledge graph (files, packages, findings, CVEs, edges)
+  8. Doctor: generate prioritized fix plan from findings; persist fixes
 
 Every sponsor-tool call is logged to the tool_calls table via the
 client wrappers, so the full audit trail is available.
@@ -81,6 +83,21 @@ async def run_pipeline(analysis_id: str) -> None:
         await _ws_activity(analysis_id, "security", "Querying CVE databases via Tavily...", "tavily")
         cve_results = await _tavily_cve_search(tavily, analysis_id, metadata)
 
+        # ── 3b. TAVILY extract + FASTINO — Parse CVE entities from advisories ───
+        cve_findings: list[dict] = []
+        if cve_results:
+            cve_findings = await _tavily_extract_and_fastino_cve(
+                tavily, fastino, analysis_id, cve_results
+            )
+            for f in cve_findings:
+                await _ws_finding(analysis_id, f)
+            if cve_findings:
+                await _ws_activity(
+                    analysis_id, "security",
+                    f"Parsed {len(cve_findings)} CVEs with Tavily + Fastino",
+                    "fastino",
+                )
+
         # ── 4. Code Quality Analysis (Fastino primary, OpenAI fallback)
         quality_findings: list[dict] = []
         await _ws(analysis_id, "quality", "running", 0.2, "Analyzing code quality...")
@@ -92,7 +109,7 @@ async def run_pipeline(analysis_id: str) -> None:
             await _ws_activity(analysis_id, "quality", f"Found {len(quality_findings)} code quality issues", "openai")
 
         # ── 5. Deep Research (Yutori primary, OpenAI fallback) ────
-        yutori_results: dict = {}
+        yutori_results: list[dict] = []
         if cve_results:
             await _ws(analysis_id, "security", "running", 0.5, "Deep research on vulnerabilities...")
             await _ws_activity(analysis_id, "security", "Researching vulnerabilities...", "yutori")
@@ -112,7 +129,9 @@ async def run_pipeline(analysis_id: str) -> None:
                 await _ws_activity(analysis_id, "pattern", f"Found {len(deep_findings)} pattern/security issues", "openai")
 
         # ── Aggregate Findings ──────────────────────────────────
-        all_findings = _merge_findings(cve_results, quality_findings, deep_findings, yutori_results)
+        all_findings = _merge_findings(
+            cve_findings, quality_findings, deep_findings, yutori_results
+        )
         health_score = _compute_health_score(all_findings, metadata["stats"])
 
         # ── 7. NEO4J — Build Graph ──────────────────────────────
@@ -126,9 +145,16 @@ async def run_pipeline(analysis_id: str) -> None:
             await _ws_graph_edge(analysis_id, e)
         await _ws_activity(analysis_id, "mapper", f"Graph built: {len(graph.get('nodes', []))} nodes, {len(graph.get('edges', []))} edges", "neo4j")
 
+        # ── 8. Doctor — Generate prioritized fix plan ─────────────
+        await _ws(analysis_id, "doctor", "running", 0.92, "Generating fix plan...")
+        await _ws_activity(analysis_id, "doctor", "Prioritizing fixes from findings...", "openai")
+        fixes = _generate_fix_plan(all_findings)
+        if fixes:
+            await _ws_activity(analysis_id, "doctor", f"Generated {len(fixes)} prioritized fixes", "openai")
+
         # ── COMPLETE ────────────────────────────────────────────
         duration = round(time.time() - t_start)
-        await _finalize(analysis_id, all_findings, health_score, graph, duration)
+        await _finalize(analysis_id, all_findings, health_score, graph, duration, fixes=fixes)
 
         await _ws_complete(analysis_id, health_score, all_findings, duration)
 
@@ -778,8 +804,8 @@ async def _openai_code_quality(
 async def _deep_research(
     yutori: YutoriClient, openai_client: OpenAIClient,
     analysis_id: str, metadata: dict, cve_results: list[dict],
-) -> dict:
-    """Try Yutori for web research, fall back to OpenAI reasoning."""
+) -> list[dict]:
+    """Try Yutori for web research, fall back to OpenAI reasoning. Always returns list of findings."""
     if yutori.available:
         try:
             result = await _yutori_research(yutori, analysis_id, metadata, cve_results)
@@ -833,11 +859,37 @@ async def _deep_research(
                 },
             )
             logger.info("Deep research completed via OpenAI (fallback)")
-            return result
+            # Normalize to list of findings for _merge_findings
+            vulns = result.get("vulnerabilities") if isinstance(result, dict) else []
+            if not isinstance(vulns, list):
+                return []
+            findings: list[dict] = []
+            for i, item in enumerate(vulns):
+                if not isinstance(item, dict):
+                    continue
+                title = (item.get("title") or item.get("summary") or f"Finding {i + 1}")[:300]
+                sev = (item.get("severity") or "info").lower()
+                if sev not in ("critical", "warning", "info"):
+                    sev = "warning" if sev in ("high", "medium") else "info"
+                findings.append({
+                    "id": f"fnd_openai_research_{uuid.uuid4().hex[:6]}",
+                    "type": "security_research",
+                    "severity": sev,
+                    "agent": "security",
+                    "provider": "openai",
+                    "title": title,
+                    "description": item.get("summary") or title,
+                    "plain_description": (item.get("summary") or title)[:200],
+                    "location": {"files": [], "primary_file": "", "start_line": 0, "end_line": 0},
+                    "blast_radius": {"files_affected": 0, "functions_affected": 0, "endpoints_affected": 0},
+                    "chain_ids": [],
+                    "confidence": 0.75,
+                })
+            return findings
         except Exception:
             logger.warning("OpenAI research fallback also failed")
 
-    return {}
+    return []
 
 
 async def _yutori_research(
@@ -1018,14 +1070,89 @@ async def _openai_analyze(
 # ────────────────────────────────────────────────────────────────
 
 def _merge_findings(*sources) -> list[dict]:
-    """Flatten and deduplicate findings from all sources."""
+    """Flatten and deduplicate findings from all sources by id."""
+    seen: set[str] = set()
     all_f: list[dict] = []
     for src in sources:
         if isinstance(src, list):
             for item in src:
                 if isinstance(item, dict) and "id" in item:
-                    all_f.append(item)
+                    fid = item.get("id") or ""
+                    if fid and fid not in seen:
+                        seen.add(fid)
+                        all_f.append(item)
     return all_f
+
+
+def _generate_fix_plan(findings: list[dict]) -> list[dict]:
+    """Build a prioritized fix plan from findings (Doctor agent output). One fix per finding."""
+    if not findings:
+        return []
+    # Sort by severity: critical first, then warning, then info
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    sorted_findings = sorted(
+        findings,
+        key=lambda f: (severity_order.get(f.get("severity") or "info", 2), (f.get("title") or "")),
+    )
+    fixes: list[dict] = []
+    for priority, fd in enumerate(sorted_findings, start=1):
+        fid = fd.get("id") or ""
+        severity = (fd.get("severity") or "info").lower()
+        if severity not in ("critical", "warning", "info"):
+            severity = "info"
+        title = (fd.get("title") or fd.get("plain_description") or "Remediate finding")[:500]
+        desc = (fd.get("description") or fd.get("plain_description") or "")[:2000]
+        if severity == "critical":
+            estimated_effort = "1–2 hours"
+        elif severity == "warning":
+            estimated_effort = "30 min"
+        else:
+            estimated_effort = "15 min"
+        chain_ids = fd.get("chain_ids") or []
+        chains_resolved = len(chain_ids) if chain_ids else (1 if severity == "critical" else 0)
+        loc = fd.get("location") or {}
+        primary_file = loc.get("primary_file") or ""
+        files = loc.get("files") or []
+        affected_code: list[dict] = []
+        if primary_file or files:
+            for path in (files or [primary_file] if primary_file else []):
+                if path:
+                    affected_code.append({
+                        "file": path,
+                        "lines": f"{loc.get('start_line', 0)}–{loc.get('end_line', 0)}" if loc.get("end_line") else "—",
+                        "context": (fd.get("plain_description") or "")[:300],
+                    })
+        if not affected_code and (primary_file or desc):
+            affected_code.append({
+                "file": primary_file or "(see description)",
+                "lines": "—",
+                "context": desc[:300],
+            })
+        steps = [
+            "Review the finding and affected code.",
+            "Apply remediation (e.g. upgrade dependency, fix pattern, or harden code).",
+            "Re-run analysis to confirm the finding is resolved.",
+        ]
+        fix_type = (fd.get("type") or "finding").replace("_", " ").title()
+        fixes.append({
+            "id": f"fix_{fid}" if fid else f"fix_{uuid.uuid4().hex[:8]}",
+            "priority": priority,
+            "title": title,
+            "severity": severity,
+            "type": fix_type,
+            "estimated_effort": estimated_effort,
+            "chains_resolved": chains_resolved,
+            "findings_resolved": [fid] if fid else [],
+            "documentation": {
+                "whats_wrong": desc,
+                "affected_code": affected_code,
+                "steps": steps,
+                "before_code": None,
+                "after_code": None,
+                "migration_guide_url": f"https://nvd.nist.gov/vuln/search/results?query={fd.get('cve_id', '')}" if fd.get("cve_id") else None,
+            },
+        })
+    return fixes
 
 
 def _compute_health_score(findings: list[dict], stats: dict) -> dict:
@@ -1215,25 +1342,30 @@ async def _finalize(
     health_score: dict,
     graph: dict,
     duration: int,
+    fixes: list[dict] | None = None,
 ):
     critical = sum(1 for f in findings if f.get("severity") == "critical")
     warnings = sum(1 for f in findings if f.get("severity") == "warning")
     info = sum(1 for f in findings if f.get("severity") == "info")
 
+    values: dict[str, Any] = {
+        "status": AnalysisStatus.COMPLETED,
+        "findings": findings,
+        "findings_summary": {"critical": critical, "warning": warnings, "info": info, "total": len(findings)},
+        "health_score": health_score,
+        "graph_nodes": graph.get("nodes"),
+        "graph_edges": graph.get("edges"),
+        "completed_at": datetime.now(timezone.utc),
+        "duration_seconds": duration,
+    }
+    if fixes is not None:
+        values["fixes"] = fixes
+
     async with async_session() as session:
         await session.execute(
             update(Analysis)
             .where(Analysis.analysis_id == analysis_id)
-            .values(
-                status=AnalysisStatus.COMPLETED,
-                findings=findings,
-                findings_summary={"critical": critical, "warning": warnings, "info": info, "total": len(findings)},
-                health_score=health_score,
-                graph_nodes=graph.get("nodes"),
-                graph_edges=graph.get("edges"),
-                completed_at=datetime.now(timezone.utc),
-                duration_seconds=duration,
-            )
+            .values(**values)
         )
         await session.commit()
 

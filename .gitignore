@@ -30,6 +30,9 @@ next-env.d.ts
 # ── Docker ────────────────────────────────────────────────────
 postgres_data/
 
+# ── Cache (e.g. Hugging Face / GLiNER2 when running backend locally) ─
+.cache/
+
 # ── IDE ───────────────────────────────────────────────────────
 .vscode/
 .idea/
@@ -42,3 +45,8 @@ Thumbs.db
 # ── Temporary / cloned repos ─────────────────────────────────
 /tmp/
 *.log
+
+# ── Testing / coverage ───────────────────────────────────────
+.coverage
+htmlcov/
+.coverage.*
