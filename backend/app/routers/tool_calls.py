@@ -1,7 +1,7 @@
 """
 Tool Calls router — view logged API calls for any analysis.
 
-Every sponsor-tool call (Fastino, Tavily, Yutori, OpenAI, Senso, Git, Neo4j)
+Every sponsor-tool call (Fastino, Tavily, Yutori, OpenAI, Git, Neo4j)
 is persisted in the tool_calls table via the client wrappers.
 This router exposes them so we can audit, debug, and build on the data.
 """
@@ -55,7 +55,7 @@ class ToolCallsSummaryResponse(CamelModel):
 @router.get("/analysis/{analysis_id}/tool-calls", response_model=ToolCallsListResponse)
 async def get_tool_calls(
     analysis_id: str,
-    tool_name: Optional[str] = Query(None, description="Filter by tool: fastino|tavily|yutori|openai|senso|git"),
+    tool_name: Optional[str] = Query(None, description="Filter by tool: fastino|tavily|yutori|openai|git"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status: success|error"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),

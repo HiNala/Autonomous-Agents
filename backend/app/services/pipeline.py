@@ -9,7 +9,6 @@ Flow:
   5. Yutori: deep web research on vulnerabilities
   6. OpenAI (backup): reasoning on findings, generate fixes
   7. Neo4j: build knowledge graph
-  8. Senso (optional): persist findings to knowledge base
 
 Every sponsor-tool call is logged to the tool_calls table via the
 client wrappers, so the full audit trail is available.
@@ -34,7 +33,6 @@ from app.clients.fastino import FastinoClient
 from app.clients.tavily_client import TavilyClient
 from app.clients.yutori import YutoriClient
 from app.clients.openai_client import OpenAIClient
-from app.clients.senso_client import SensoClient
 from app.clients.tool_logger import log_tool_call
 from app.services import neo4j as neo4j_service
 from app.routers.ws import manager as ws_manager
@@ -51,7 +49,6 @@ async def run_pipeline(analysis_id: str) -> None:
     tavily = TavilyClient()
     yutori = YutoriClient()
     openai = OpenAIClient()
-    senso = SensoClient()
 
     try:
         # ── 1. CLONE ────────────────────────────────────────────
@@ -106,15 +103,9 @@ async def run_pipeline(analysis_id: str) -> None:
         await _ws(analysis_id, "orchestrator", "running", 0.85, "Building knowledge graph...")
         graph = await _build_neo4j_graph(analysis_id, metadata, all_findings)
 
-        # ── 8. SENSO — Persist (optional) ───────────────────────
-        senso_ids: list[str] = []
-        if senso.available:
-            await _ws(analysis_id, "senso", "running", 0.1, "Persisting to Senso knowledge base...")
-            senso_ids = await _senso_persist(senso, analysis_id, metadata, all_findings)
-
         # ── COMPLETE ────────────────────────────────────────────
         duration = round(time.time() - t_start)
-        await _finalize(analysis_id, all_findings, health_score, graph, senso_ids, duration)
+        await _finalize(analysis_id, all_findings, health_score, graph, duration)
 
         await _ws_complete(analysis_id, health_score, all_findings, duration)
 
@@ -684,52 +675,6 @@ async def _build_neo4j_graph(
 
 
 # ────────────────────────────────────────────────────────────────
-# 8. SENSO — Optional Knowledge Persistence
-# ────────────────────────────────────────────────────────────────
-
-async def _senso_persist(
-    senso: SensoClient, analysis_id: str, metadata: dict, findings: list[dict]
-) -> list[str]:
-    """Ingest findings and repo profile into Senso."""
-    ids: list[str] = []
-
-    # Ingest repo profile
-    stack = metadata.get("detected_stack", {})
-    stats = metadata.get("stats", {})
-    try:
-        result = await senso.ingest_content(
-            analysis_id=analysis_id,
-            title=f"Repo Analysis: {analysis_id}",
-            summary=f"{', '.join(stack.get('frameworks', []))} — {stats.get('total_files', 0)} files",
-            text=json.dumps({"stack": stack, "stats": stats, "findings_count": len(findings)}, indent=2),
-            step_name="ingest_profile",
-            wait_for_processing=False,
-        )
-        if cid := result.get("id"):
-            ids.append(cid)
-    except Exception:
-        pass
-
-    # Ingest top findings
-    for f in findings[:10]:
-        try:
-            result = await senso.ingest_content(
-                analysis_id=analysis_id,
-                title=f["title"],
-                summary=f"{f['severity']}: {f.get('description', '')[:200]}",
-                text=json.dumps(f, indent=2),
-                step_name=f"ingest_finding_{f['id']}",
-                wait_for_processing=False,
-            )
-            if cid := result.get("id"):
-                ids.append(cid)
-        except Exception:
-            pass
-
-    return ids
-
-
-# ────────────────────────────────────────────────────────────────
 # DB + WS helpers
 # ────────────────────────────────────────────────────────────────
 
@@ -761,7 +706,6 @@ async def _finalize(
     findings: list[dict],
     health_score: dict,
     graph: dict,
-    senso_ids: list[str],
     duration: int,
 ):
     critical = sum(1 for f in findings if f.get("severity") == "critical")
@@ -779,7 +723,6 @@ async def _finalize(
                 health_score=health_score,
                 graph_nodes=graph.get("nodes"),
                 graph_edges=graph.get("edges"),
-                senso_content_ids=senso_ids,
                 completed_at=datetime.now(timezone.utc),
                 duration_seconds=duration,
             )

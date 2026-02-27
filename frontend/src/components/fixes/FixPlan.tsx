@@ -25,7 +25,6 @@ function exportMarkdown(fixes: Fix[], repoName?: string) {
       ...(fix.documentation.steps.length > 0 ? ["### Steps", ...fix.documentation.steps.map((s, i) => `${i + 1}. ${s}`), ""] : []),
       ...(fix.documentation.beforeCode ? ["### Before", "```", fix.documentation.beforeCode, "```", ""] : []),
       ...(fix.documentation.afterCode  ? ["### After",  "```", fix.documentation.afterCode,  "```", ""] : []),
-      ...(fix.sensoHistoricalContext ? [`> 🧠 ${fix.sensoHistoricalContext}`, ""] : []),
     ].join("\n")),
   ];
   const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
@@ -290,28 +289,6 @@ export function FixPlan() {
                     {fix.chainsResolved > 0 && <span>⛓ {fix.chainsResolved} chains</span>}
                     <span>{fix.findingsResolved.length} findings</span>
                   </div>
-
-                  {fix.sensoHistoricalContext && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        fontSize: "var(--text-micro)",
-                        color: "#D8B4FE",
-                        fontStyle: "italic",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <span
-                        style={{ filter: "drop-shadow(0 0 5px rgba(147, 51, 234, 0.6))" }}
-                        className="animate-brain"
-                      >
-                        🧠
-                      </span>
-                      {fix.sensoHistoricalContext}
-                    </div>
-                  )}
                 </div>
 
                 {/* Expand arrow */}

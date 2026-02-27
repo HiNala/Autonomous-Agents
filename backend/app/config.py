@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     database_url_sync: str = "postgresql://vibecheck:vibecheck_secret@localhost:5432/vibecheck"
 
     yutori_api_key: str = ""
-    senso_api_key: str = ""
     neo4j_uri: str = ""
     neo4j_user: str = "neo4j"
     neo4j_password: str = ""

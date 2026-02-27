@@ -7,7 +7,6 @@ pydantic-settings==2.7.1
 # Database
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
-psycopg2-binary==2.9.10
 alembic==1.14.1
 
 # Async HTTP

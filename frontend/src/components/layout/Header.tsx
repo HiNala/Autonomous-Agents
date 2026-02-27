@@ -309,34 +309,8 @@ export function Header() {
         </div>
       )}
 
-      {/* Right — Senso indicator + Hamburger menu */}
+      {/* Right — Hamburger menu */}
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        {/* Senso indicator */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            fontSize: "var(--text-micro)",
-            color: "var(--text-tertiary)",
-            fontFamily: "var(--font-code)",
-            letterSpacing: "0.06em",
-          }}
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: "var(--agent-senso)",
-              boxShadow: "0 0 8px var(--agent-senso)",
-              display: "block",
-              animation: "pulse-once 2s ease-in-out infinite",
-            }}
-          />
-          Senso
-        </div>
-
         {/* Hamburger menu */}
         <div ref={menuRef} style={{ position: "relative" }}>
           <button

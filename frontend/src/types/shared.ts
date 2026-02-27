@@ -1,11 +1,11 @@
 // ── VIBE CHECK — Shared TypeScript Types (from contracts.md) ──
 
 export type Severity = "critical" | "warning" | "info";
-export type AgentName = "quality" | "pattern" | "security" | "orchestrator" | "doctor" | "senso" | "mapper";
+export type AgentName = "quality" | "pattern" | "security" | "orchestrator" | "doctor" | "mapper";
 export type GraphViewMode = "structure" | "dependencies" | "vulnerabilities";
 export type AnalysisStatus = "queued" | "cloning" | "mapping" | "analyzing" | "completing" | "completed" | "failed";
 export type CategoryStatus = "healthy" | "warning" | "critical";
-export type LLMProvider = "fastino" | "openai" | "tavily" | "senso" | "yutori";
+export type LLMProvider = "fastino" | "openai" | "tavily" | "yutori";
 
 export interface HealthScore {
   overall: number;
@@ -33,7 +33,6 @@ export interface Finding {
   cve?: CVEInfo;
   chainIds: string[];
   fixId?: string;
-  sensoContentId?: string;
   confidence: number;
 }
 
@@ -67,8 +66,6 @@ export interface Fix {
   chainsResolved: number;
   findingsResolved: string[];
   documentation: FixDocumentation;
-  sensoContentId?: string;
-  sensoHistoricalContext?: string;
 }
 
 export interface FixDocumentation {
@@ -179,47 +176,11 @@ export interface AnalysisResult {
   findings: FindingsSummary;
   vulnerabilityChains: number;
   fixesGenerated: number;
-  sensoIntelligence?: {
-    crossRepoPatterns: number;
-    previousFixesApplied: number;
-    knowledgeBaseContributions: number;
-  };
   timestamps: {
     startedAt: string;
     completedAt: string | null;
     duration: number | null;
   };
-}
-
-// ── SENSO INTELLIGENCE ──────────────────────────────────────
-
-export interface SensoSearchResult {
-  answer: string;
-  sources: SensoSource[];
-  processingTimeMs: number;
-  totalResults: number;
-}
-
-export interface SensoSource {
-  contentId: string;
-  title: string;
-  score: number;
-  chunkText: string;
-}
-
-export interface SensoInsight {
-  type: "pattern" | "historical_fix" | "cross_repo";
-  title: string;
-  description: string;
-  reposAffected: number;
-  sourceContentIds: string[];
-}
-
-export interface SensoGenerateResult {
-  generatedText: string;
-  sources: { contentId: string; title: string; score: number }[];
-  processingTimeMs: number;
-  savedContentId?: string;
 }
 
 // ── REQUESTS & RESPONSES ────────────────────────────────────
@@ -229,7 +190,6 @@ export interface AnalyzeRequest {
   branch?: string;
   scope?: "full" | "security-only" | "quality-only";
   maxFiles?: number;
-  useSensoIntelligence?: boolean;
 }
 
 export interface AnalyzeResponse {
@@ -247,7 +207,6 @@ export type WSMessage =
   | WSGraphNode
   | WSGraphEdge
   | WSAgentComplete
-  | WSSensoIntelligence
   | WSComplete
   | WSError;
 
@@ -273,12 +232,6 @@ export interface WSAgentComplete {
   findingsCount: number;
   durationMs: number;
   provider: LLMProvider;
-}
-
-export interface WSSensoIntelligence {
-  type: "senso_intelligence";
-  insight: string;
-  sourceCount: number;
 }
 
 export interface WSComplete {

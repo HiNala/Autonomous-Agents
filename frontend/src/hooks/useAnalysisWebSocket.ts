@@ -40,7 +40,6 @@ export function useAnalysisWebSocket(analysisId: string | null) {
       case "agent_complete":
         store.updateAgentStatus(msg.agent, { name: msg.agent, status: "complete", progress: 1, message: `${msg.findingsCount} findings`, findingsCount: msg.findingsCount, durationMs: msg.durationMs, provider: msg.provider });
         break;
-      case "senso_intelligence": store.addSensoInsight(msg.insight, msg.sourceCount); break;
       case "complete":
         store.setComplete(msg.healthScore, msg.findingsSummary, msg.duration);
         if (analysisId) {
