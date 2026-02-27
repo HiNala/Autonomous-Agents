@@ -91,7 +91,7 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
         async with httpx.AsyncClient(timeout=6.0) as c:
             r = await c.get(
                 "https://api.yutori.com/health",
-                headers={"X-API-KEY": key},
+                headers={"X-API-Key": key},
             )
             r.raise_for_status()
             return {"message": "Yutori OK — API healthy"}
@@ -102,11 +102,20 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
         if not client.available:
             raise ValueError("Fastino unavailable (no API key and local GLiNER2 not loaded)")
         if settings.fastino_api_key:
+            # Fastino Labs uses Pioneer API: https://api.pioneer.ai/gliner-2, X-API-Key auth
             async with httpx.AsyncClient(timeout=6.0) as c:
                 r = await c.post(
-                    "https://api.fastino.ai/gliner-2",
-                    headers={"Authorization": f"Bearer {settings.fastino_api_key}"},
-                    json={"task": "classify_text", "text": "hello", "schema": {"categories": ["test"]}},
+                    "https://api.pioneer.ai/gliner-2",
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-API-Key": settings.fastino_api_key,
+                    },
+                    json={
+                        "task": "extract_entities",
+                        "text": "Apple Inc. was founded by Steve Jobs in Cupertino.",
+                        "schema": ["person", "organization", "location"],
+                        "threshold": 0.5,
+                    },
                 )
                 if r.status_code in (401, 403):
                     raise ValueError(f"Fastino auth failed — HTTP {r.status_code}")

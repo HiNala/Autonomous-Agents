@@ -1,7 +1,7 @@
 """
-Fastino GLiNER-2 client — entity extraction, text classification, structured JSON.
+Fastino Labs GLiNER-2 client — entity extraction, text classification, structured JSON.
 
-- If FASTINO_API_KEY is set: uses Fastino hosted API (https://api.fastino.com/gliner-2).
+- If FASTINO_API_KEY is set: uses Pioneer API (https://api.pioneer.ai/gliner-2).
 - Otherwise: uses local GLiNER2 (pip install gliner2, from gliner2 import GLiNER2).
 
 Repository: https://github.com/fastino-ai/GLiNER2
@@ -20,7 +20,8 @@ from app.clients.tool_logger import log_tool_call
 
 logger = logging.getLogger(__name__)
 
-FASTINO_BASE = "https://api.fastino.com"
+# Fastino Labs uses Pioneer.ai hosted GLiNER-2
+FASTINO_BASE = "https://api.pioneer.ai"
 LOCAL_MODEL_ID = "fastino/gliner2-base-v1"
 
 # Lazy-loaded local model (sync); loaded once per process
@@ -92,7 +93,7 @@ class FastinoClient:
     def __init__(self):
         self.settings = get_settings()
         self._headers = {
-            "x-api-key": self.settings.fastino_api_key,
+            "X-API-Key": self.settings.fastino_api_key,
             "Content-Type": "application/json",
         }
 
@@ -158,7 +159,7 @@ class FastinoClient:
         return await self._call_local(analysis_id, step_name, payload)
 
     async def _call_api(self, analysis_id: str, step_name: str, payload: dict) -> dict[str, Any]:
-        endpoint = f"{FASTINO_BASE}/gliner-2"
+        endpoint = f"{FASTINO_BASE}/gliner-2"  # Pioneer.ai GLiNER-2 (Fastino Labs)
         t0 = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
