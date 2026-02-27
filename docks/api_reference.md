@@ -13,8 +13,8 @@
 | **Yutori** | 🔴 PRIMARY REASONING | n1 powers all 5 specialist agents (OpenAI-compatible). Browsing API does live CVE lookups. Research API runs deep dependency intelligence. Scouting API monitors for new CVEs post-analysis. |
 | **Neo4j** | 🔴 ESSENTIAL | The knowledge graph — files, functions, dependencies, CVE chains, blast radius. The graph IS the product. |
 | **Tavily** | 🔴 ESSENTIAL | Fast supplemental web search — quick CVE lookups, changelog snippets, confirming fix versions |
-| **OpenAI** | 🟡 BACKUP | Fallback reasoning when Yutori n1 is unavailable. Structured outputs for schema-critical graph writes. |
-| **Fastino** | 🟡 MODERATE | Fast entity pre-extraction (functions, imports, endpoints) before Yutori/OpenAI — cuts tokens, speeds analysis |
+| **OpenAI** | 🔴 ACTIVE FALLBACK | Handles all inferencing when Fastino/Yutori keys are not set. Also used for deep reasoning, structured outputs. Primary until Fastino/Yutori keys activate. |
+| **Fastino** | 🟡 PRIMARY FAST | Fast entity extraction/classification — primary when key is active, OpenAI handles automatically if unavailable |
 | **AWS** | 🟡 MODERATE | Lambda (parallel agent execution), S3 (repo storage), DynamoDB (state), EventBridge (agent coordination) |
 | **Render** | 🟢 SUPPORT | Deploy the API server and Next.js dashboard |
 
@@ -25,7 +25,7 @@
 1. [Yutori — Primary Reasoning Engine 🔴](#1-yutori--primary-reasoning-engine-)
 2. [Neo4j — Knowledge Graph 🔴](#2-neo4j--knowledge-graph-)
 3. [Tavily — Supplemental Web Search 🔴](#3-tavily--supplemental-web-search-)
-4. [OpenAI — Backup Reasoning 🟡](#4-openai--backup-reasoning-)
+4. [OpenAI — Active Fallback Reasoning 🔴](#4-openai--backup-reasoning-)
 5. [Fastino — Fast Entity Extraction 🟡](#5-fastino--fast-entity-extraction-)
 6. [AWS — Infrastructure 🟡](#6-aws--infrastructure-)
 7. [Render — Deployment 🟢](#7-render--deployment-)
@@ -1111,7 +1111,7 @@ result: AnalysisResult = resp.choices[0].message.parsed
 
 ## 5. Fastino — Fast Entity Extraction 🟡
 
-Pre-process every file before sending to Yutori/OpenAI. Extract function names, imports, API endpoints at CPU speed (<150ms) to reduce the context window and focus the heavy models on what matters.
+Primary for high-volume fast tasks (classification, entity extraction). When the `FASTINO_API_KEY` is set, runs at CPU speed (<150ms per file). When not set, the pipeline automatically falls back to OpenAI — no configuration needed.
 
 ```python
 import requests, os

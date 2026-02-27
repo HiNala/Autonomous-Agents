@@ -124,15 +124,14 @@ Takes all findings and writes specific, actionable fix instructions for each one
   for a repository with ~50 files
 
 
-3.3 Agent Speed: Fastino vs. OpenAI
-Different tasks require different AI tools. VIBE CHECK uses two AI providers strategically:
+3.3 AI Provider Strategy: Fastino + Yutori Primary, OpenAI Fallback
+VIBE CHECK uses a graceful fallback architecture — intended primaries provide speed, OpenAI ensures the system always works:
 
-AI Provider
-When It's Used
-Fastino (Task-Specific Models)
-Used for fast, precise jobs: classifying a file type, extracting CVE IDs from text, categorizing code smells. Runs in milliseconds. The Mapper agent can classify 47 files in under 150ms total.
-OpenAI GPT-4o (General Reasoning)
-Used for nuanced jobs: understanding complex code, mapping how a vulnerability creates an attack chain, writing fix documentation. Slower but capable of deep reasoning.
+AI Provider | Role | Fallback
+---|---|---
+**Fastino** (Task-Specific Models) | Primary for fast, precise jobs: classifying files, extracting CVE IDs, categorizing code smells. 99x faster when key is active. | OpenAI handles automatically if key unavailable
+**Yutori** | Primary for deep web research — investigates vulnerabilities, cross-references advisories. | OpenAI reasoning substitutes if key unavailable
+**OpenAI GPT-4o** | Deep reasoning, code analysis, fix documentation. Also the active fallback for all Fastino/Yutori tasks when those keys aren't configured. | Always available
 
 
 
@@ -329,11 +328,11 @@ Role in VIBE CHECK
 📊  Neo4j
 The Graph Database. Every file, function, dependency, vulnerability, and relationship is stored in Neo4j's graph database. The entire visualization you see on screen is Neo4j data rendered live. Neo4j is what makes blast radius and attack chain analysis possible.
 ⚡  Fastino
-The Speed Engine. Fastino's Task-Specific Language Models (TLMs) handle the high-volume, precision jobs: classifying 47 files in 142ms, extracting CVE IDs from advisory text, identifying function signatures. Roughly 120 Fastino calls happen per scan, taking about 1.5 seconds total.
+The Speed Engine. Fastino's Task-Specific Language Models (TLMs) are built for high-volume precision jobs: classifying files, extracting CVE IDs, identifying function signatures. When the key is active: 120+ calls per scan in ~1.5s total. When key is not set, OpenAI handles these tasks automatically.
 🔬  Yutori
-The Primary Research Engine. Yutori's n1 model powers all specialist agents via an OpenAI-compatible interface. Its Browsing API does live CVE lookups on NVD and GitHub Security Advisories, while its Research API runs deep dependency intelligence across 100+ sources in parallel.
+The Research Engine. Yutori's Browsing and Research APIs perform deep CVE lookups across NVD, GitHub Security Advisories, and 100+ sources in parallel. When key is not set, OpenAI reasoning substitutes.
 🧠  OpenAI
-The Fallback Reasoner. GPT-4o serves as a backup when Yutori n1 is unavailable, and handles structured outputs for schema-critical graph writes. About 15-30 calls per scan.
+The Reasoning Engine & Active Fallback. GPT-4o handles deep code reasoning, architecture analysis, fix documentation, and structured outputs. Currently acts as the primary when Fastino/Yutori keys are not yet configured — ensuring the system always runs completely.
 🔍  Tavily
 The Web Researcher. Tavily searches the public internet (specifically the National Vulnerability Database, GitHub Security Advisories, and Snyk) for quick CVE lookups, changelog snippets, and fix version confirmations.
 
@@ -342,12 +341,12 @@ The Web Researcher. Tavily searches the public internet (specifically the Nation
 While a scan is running, the footer of the dashboard shows each sponsor's logo. When that sponsor's API is being called, its logo lights up and pulses. This creates a real-time visual of the integration in action:
 
   0:03   Neo4j pulses     (graph connection established)
-  0:05   Fastino pulses   (file classification begins)
-  0:12   Fastino stops    (142ms for 47 files)
-  0:15   Tavily pulses    (CVE search begins)
-  0:18   Fastino pulses   (extracting CVE entities from search results)
-  0:20   OpenAI pulses    (chain analysis begins)
-  0:30   OpenAI pulses    (Doctor Agent generating fix docs)
+  0:05   Fastino/OpenAI pulses   (file classification — Fastino when key active)
+  0:12   Classification done     (provider shown in agent badge)
+  0:15   Tavily pulses           (CVE search begins)
+  0:18   Yutori/OpenAI pulses    (vulnerability research — Yutori when key active)
+  0:20   OpenAI pulses           (deep chain analysis)
+  0:30   OpenAI pulses           (Doctor Agent generating fix docs)
 
 
 
@@ -458,7 +457,7 @@ Why It Matters
 Attack Chain Visualization
 Most scanners list vulnerabilities. VIBE CHECK shows you HOW they connect — from the entry point to the exploitable outcome — as a live animated graph. You can see the blast radius of any node in the entire graph.
 Speed + Depth Combination
-Fastino handles fast classification (47 files in 142ms). OpenAI handles deep reasoning. Together they deliver both speed and quality that neither can achieve alone.
+Fastino handles fast classification when active (47 files in 142ms). Yutori handles deep web research. OpenAI handles reasoning and fills in as the automatic fallback for both. The system delivers a complete analysis regardless of which keys are configured.
 Keystone Fixes
 Instead of treating all fixes equally, VIBE CHECK identifies which single fixes will resolve the most attack chains. Fix one thing, break four chains.
 Plain Language First

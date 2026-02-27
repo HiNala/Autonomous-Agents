@@ -9,14 +9,14 @@
 
 1. Vision & Architecture Overview
 2. Infrastructure (Local-First, AWS Optional)
-3. LLM Strategy: Fastino Primary Demo, OpenAI Backup
+3. LLM Strategy: Fastino Primary, OpenAI Active Fallback
 4. Agent Specifications (6 Agents)
 5. Sponsor Tool Reference — Complete Endpoint Mapping
-   - 5.1 Fastino Labs (PRIMARY DEMO — TLMs + GLiNER-2)
-   - 5.2 OpenAI (BACKUP — General Reasoning)
+   - 5.1 Fastino Labs (PRIMARY — TLMs + GLiNER-2, OpenAI fallback when key unavailable)
+   - 5.2 OpenAI (ACTIVE FALLBACK — handles classification/analysis when Fastino key not set)
    - 5.3 Tavily (CVE Search & Extraction)
    - 5.4 Neo4j (Knowledge Graph)
-   - 5.5 Yutori (STRETCH — Deep Web Intelligence)
+   - 5.5 Yutori (PRIMARY RESEARCH — Deep Web Intelligence, OpenAI fallback when key not set)
    - 5.7 AWS (OPTIONAL — Production Infra)
 6. Neo4j Graph Schema
 7. Database & State Schemas
@@ -176,11 +176,11 @@ settings = Settings()
 
 ---
 
-## 3. LLM STRATEGY: FASTINO PRIMARY DEMO, OPENAI BACKUP
+## 3. LLM STRATEGY: FASTINO PRIMARY, OPENAI ACTIVE FALLBACK
 
-### Why Fastino First
+### Architecture
 
-Fastino's Task-Specific Language Models (TLMs) are purpose-built for the exact tasks our agents perform: entity extraction, text classification, structured data parsing, and function calling. They run 99x faster than general-purpose LLMs with <150ms CPU latency. For a hackathon demo, this speed difference is dramatic and visible.
+Fastino's Task-Specific Language Models (TLMs) are purpose-built for entity extraction, text classification, and structured data parsing — 99x faster than general-purpose LLMs with <150ms CPU latency. Yutori handles deep web research and reasoning. **When either key is unavailable, the system automatically falls back to OpenAI** — no configuration needed, no pipeline failure. This means the system runs correctly today with only an OpenAI key and becomes faster/richer when Fastino and Yutori keys are activated.
 
 ### The Dual-Provider Architecture
 
@@ -264,8 +264,8 @@ class OpenAIProvider(LLMProvider):
 
 ### Agent → Provider Mapping
 
-| Agent | Task | Primary (Fastino) | Backup (OpenAI) |
-|-------|------|-------------------|-----------------|
+| Agent | Task | Primary (Fastino / Yutori) | Fallback (OpenAI) |
+|-------|------|--------------------------|-------------------|
 | **Mapper** | File categorization | ✅ `classify_text` → source/test/config/docs | `gpt-4o-mini` classification |
 | **Mapper** | Import/dependency extraction | ✅ `extract_entities` → package names, versions | regex fallback |
 | **Mapper** | Function extraction | ✅ `extract_json` → name, params, line numbers | `gpt-4o-mini` structured |
@@ -279,21 +279,17 @@ class OpenAIProvider(LLMProvider):
 | **Orchestrator** | Stack detection | ✅ `classify_text` → language/framework/build | `gpt-4o-mini` |
 | **Orchestrator** | Health score computation | Local algorithm (no LLM needed) | — |
 
-### Demo Flow — Fastino Prominently Featured
+### Demo Flow — Intelligent Fallback
 
-During the demo, the terminal/dashboard will show:
+During the demo, the agent activity feed shows real-time provider usage:
 ```
 🔍 Mapper Agent: Classifying 47 files...
-   ⚡ Fastino TLM: 47 classifications in 142ms (avg 3ms/file)
-   → 32 source, 8 test, 4 config, 2 docs, 1 asset
+   ⚡ Fastino TLM: 47 classifications in 142ms (avg 3ms/file)    ← when key active
+   ✦ OpenAI gpt-4o-mini: batch classify fallback                  ← when Fastino key not set
 
-🔍 Mapper Agent: Extracting dependencies...
-   ⚡ Fastino GLiNER-2: 12 packages extracted in 89ms
-   → express@4.17.1, react@18.2.0, next@14.0.0...
-
-🔍 Security Agent: Parsing CVE advisories...
-   ⚡ Fastino GLiNER-2: Entity extraction from 5 advisory pages in 234ms
-   → CVE-2024-XXXX (CVSS 9.1), CVE-2024-YYYY (CVSS 7.8)
+🔍 Security Agent: Researching vulnerabilities...
+   ⚡ Yutori: Deep web research on CVE-2024-XXXX                  ← when key active
+   🧠 OpenAI gpt-4o: Security assessment reasoning                ← when Yutori key not set
 
 🔍 Quality Agent: Analyzing code patterns...
    🧠 OpenAI gpt-4o: Deep code reasoning (structured output)
@@ -1440,8 +1436,8 @@ if __name__ == "__main__":
 
 | Sponsor | Depth | Role |
 |---------|-------|------|
-| **Fastino** | ESSENTIAL | Primary demo inferencing — TLMs + GLiNER-2 via Python SDK. 99x faster. The speed story. |
-| **OpenAI** | ESSENTIAL | Backup reasoning — async Python SDK. Complex code analysis, chains, docs. The depth story. |
+| **Fastino** | PRIMARY | Fast classification & extraction — TLMs + GLiNER-2. When key is active: 99x faster than GPT-4. |
+| **OpenAI** | ACTIVE FALLBACK | Handles all inferencing automatically when Fastino/Yutori keys are not set. Also used for deep reasoning. |
 | **Neo4j** | ESSENTIAL | Codebase knowledge graph — async Python driver. The product IS the graph. |
 | **Tavily** | ESSENTIAL | CVE web search — tavily-python async client. The security data source. |
 | **Yutori** | STRETCH | Deep web research + continuous monitoring. |

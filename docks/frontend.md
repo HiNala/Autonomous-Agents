@@ -320,7 +320,7 @@ The application has exactly four states. The transitions between them are the co
 └──────────────────────────────────────────────────────┘
 ```
 
-**Design rules (Jobs, Kay):** This is theater. Every second must show visible progress. The graph builds node-by-node as the Mapper works. Agent status lines update in real-time. Live findings appear as they're discovered — critical findings get a brief pulse animation. The Fastino speed callout is visible ("47 files classified in 142ms") for sponsor demo value.
+**Design rules (Jobs, Kay):** This is theater. Every second must show visible progress. The graph builds node-by-node as the Mapper works. Agent status lines update in real-time. Live findings appear as they're discovered — critical findings get a brief pulse animation. Provider badges show which tool is active (Fastino when key is live, OpenAI as fallback).
 
 ### State 3: COMPLETED — The Dashboard
 
@@ -460,17 +460,20 @@ Each of the 6 agents gets a row:
 
 **Provider Badge** (critical for demo):
 When an agent is running, a small badge shows which sponsor API is active:
-- `⚡ Fastino` — yellow badge, for classification/extraction tasks
-- `🧠 OpenAI` — green badge, for deep reasoning tasks
-- `🔍 Tavily` — blue badge, for web search tasks
-This makes sponsor usage visceral and visible during the demo.
+- `Fastino` — yellow badge, for classification/extraction tasks (when key is active)
+- `OpenAI` — green badge, for deep reasoning and as active fallback
+- `Yutori` — pink badge, for deep web research (when key is active)
+- `Tavily` — blue badge, for web search tasks
+Provider badges are visible in real-time — sponsors show activity as they contribute.
 
-**Fastino Speed Callout:**
-Whenever Fastino completes a batch, a brief toast appears:
+**Agent Activity Feed:**
+A scrolling feed below the agent list shows live messages from each provider:
 ```
-⚡ Fastino GLiNER-2: 47 files classified in 142ms
+● Classifying files...                   fastino
+● Running deep pattern analysis...       openai
+● Researching CVE-2024-XXXX...          yutori
 ```
-This appears below the agent list, fades after 3s. Stacks if multiple appear.
+Each entry has a colored dot (provider color), message text, and provider label.
 
 **Live Graph Canvas:**
 As the Mapper agent sends `graph_node` and `graph_edge` WebSocket messages, the graph renders progressively:
@@ -1111,7 +1114,7 @@ The cached replay uses this timing (matching the 3-minute demo script):
 0:00 - URL paste, analyze click
 0:03 - Orchestrator complete, detected stack appears
 0:05 - Mapper starts, graph nodes begin appearing
-0:12 - Mapper complete (Fastino speed toast: "47 files in 142ms")
+0:12 - Mapper complete (activity feed: "files classified" with provider badge)
 0:15 - Quality + Pattern + Security agents start in parallel
 0:20 - First critical finding appears (red pulse)
 0:30 - All agents complete
@@ -1126,23 +1129,23 @@ During the demo, these sponsor touchpoints must be visible:
 
 | Sponsor | Visible Moment | What They See |
 |---------|---------------|---------------|
-| **Fastino** | 0:05-0:12 | "⚡ Fastino GLiNER-2: 47 files classified in 142ms" toast + provider badge on Mapper |
-| **Fastino** | 0:15-0:25 | Provider badges on Quality + Pattern agents showing Fastino classification |
-| **OpenAI** | 0:25-0:37 | Provider badge on Security (chain analysis) + Doctor (fix generation) |
+| **Fastino** | 0:05-0:12 | Provider badge on Mapper (yellow) + activity feed entry when key is active |
+| **Yutori** | 0:15-0:25 | Provider badge on Security agent (pink) during web research when key is active |
+| **OpenAI** | Throughout | Active fallback badge (green) — always present, handles all when other keys not set |
 | **Neo4j** | 0:05-0:42 | The entire graph panel — it IS Neo4j |
-| **Tavily** | 0:15-0:25 | Provider badge on Security agent during CVE search |
+| **Tavily** | 0:15-0:25 | Provider badge on Security agent (blue) during CVE search |
 
 ### Footer Sponsor Pulse Timing
 
 During the demo, the footer sponsor logos activate in sequence:
 ```
-0:03  Neo4j pulses (graph connection established)
-0:05  Fastino pulses (mapper classification begins)
-0:12  Fastino stops, Neo4j pulses again (graph writes)
-0:15  Tavily pulses (CVE search begins)
-0:18  Fastino pulses (CVE entity extraction)
-0:20  OpenAI pulses (chain analysis begins)
-0:30  OpenAI pulses (Doctor agent)
+0:03  Neo4j pulses     (graph connection established)
+0:05  Fastino/OpenAI pulses   (mapper classification — Fastino when key active)
+0:12  Neo4j pulses again      (graph writes)
+0:15  Tavily pulses           (CVE search begins)
+0:18  Yutori/OpenAI pulses    (vulnerability research)
+0:20  OpenAI pulses           (chain analysis begins)
+0:30  OpenAI pulses           (Doctor agent)
 ```
 
 This creates a visual rhythm of sponsor integration that judges can feel.

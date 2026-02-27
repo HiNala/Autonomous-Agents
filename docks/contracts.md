@@ -671,11 +671,12 @@ class WebSocketBroadcaster:
             "type": "error", "agent": agent, "message": message, "recoverable": recoverable,
         })
 
-    async def send_fastino_speed(self, message: str):
-        """Special toast for Fastino speed callouts during demo."""
+    async def send_activity(self, agent: str, message: str, provider: str = ""):
+        """Broadcast agent activity for live feed."""
         await ws_manager.broadcast(self.analysis_id, {
-            "type": "status", "agent": "mapper", "status": "running",
-            "progress": -1, "message": f"⚡ Fastino: {message}",
+            "type": "tool_activity", "agent": agent,
+            "message": message, "provider": provider,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 ```
 
@@ -722,7 +723,7 @@ interface WSAgentComplete {
   agent: AgentName;
   findingsCount: number;
   durationMs: number;
-  provider: 'fastino' | 'openai' | 'tavily';
+  provider: 'fastino' | 'openai' | 'tavily' | 'yutori';
 }
 
 interface WSComplete {
@@ -751,16 +752,16 @@ type AgentName = 'orchestrator' | 'mapper' | 'quality' | 'pattern' | 'security' 
 ← graph_node: { node: { type: "directory", label: "src/" } }
 ← graph_node: { node: { type: "file", label: "api.js" } }
 ← graph_edge: { edge: { source: "dir_src", target: "file_001", type: "contains" } }
-← status: { agent: "mapper", status: "running", progress: -1, message: "⚡ Fastino: 47 files classified in 142ms" }
-← agent_complete: { agent: "mapper", findingsCount: 0, provider: "fastino" }
+← tool_activity: { agent: "mapper", message: "Classifying 47 files...", provider: "fastino" }
+← agent_complete: { agent: "mapper", findingsCount: 0, provider: "fastino" }   ← or "openai" if Fastino key not set
 ← status: { agent: "quality", status: "running", message: "Analyzing code quality..." }
 ← status: { agent: "pattern", status: "running", message: "Checking patterns..." }
 ← status: { agent: "security", status: "running", message: "Searching for CVEs..." }
 ← finding: { finding: { id: "fnd_001", severity: "critical", title: "CVE-2024-29041..." } }
 ← finding: { finding: { id: "fnd_002", severity: "warning", title: "Unhandled error..." } }
 ← agent_complete: { agent: "security", findingsCount: 15, provider: "tavily" }
-← agent_complete: { agent: "quality", findingsCount: 12, provider: "fastino" }
-← agent_complete: { agent: "pattern", findingsCount: 8, provider: "fastino" }
+← agent_complete: { agent: "quality", findingsCount: 12, provider: "fastino" }   ← or "openai"
+← agent_complete: { agent: "pattern", findingsCount: 8, provider: "openai" }
 ← status: { agent: "doctor", status: "running", message: "Generating fix documentation..." }
 ← agent_complete: { agent: "doctor", findingsCount: 15, provider: "openai" }
 ← complete: { healthScore: { overall: 73, letterGrade: "B-" }, duration: 42 }
@@ -782,7 +783,7 @@ export type AgentName = 'quality' | 'pattern' | 'security';
 export type GraphViewMode = 'structure' | 'dependencies' | 'vulnerabilities';
 export type AnalysisStatus = 'queued' | 'cloning' | 'mapping' | 'analyzing' | 'completing' | 'completed' | 'failed';
 export type CategoryStatus = 'healthy' | 'warning' | 'critical';
-export type LLMProvider = 'fastino' | 'openai' | 'tavily';
+export type LLMProvider = 'fastino' | 'openai' | 'tavily' | 'yutori';
 
 // ============================================================
 // HEALTH SCORE
@@ -953,7 +954,7 @@ FullAgentName = Literal["orchestrator", "mapper", "quality", "pattern", "securit
 GraphViewMode = Literal["structure", "dependencies", "vulnerabilities"]
 AnalysisStatus = Literal["queued", "cloning", "mapping", "analyzing", "completing", "completed", "failed"]
 CategoryStatus = Literal["healthy", "warning", "critical"]
-LLMProvider = Literal["fastino", "openai", "tavily"]
+LLMProvider = Literal["fastino", "openai", "tavily", "yutori"]
 
 # ============================================================
 # HEALTH SCORE
@@ -1218,7 +1219,7 @@ interface ErrorResponse {
 States and what's happening:
   QUEUED     → Request accepted, BackgroundTask queued
   CLONING    → asyncio.create_subprocess_exec git clone
-  MAPPING    → Mapper Agent building Neo4j graph (Fastino extraction)
+  MAPPING    → Mapper Agent building Neo4j graph (Fastino or OpenAI fallback extraction)
   ANALYZING  → Quality + Pattern + Security via asyncio.TaskGroup
   COMPLETING → Doctor Agent
   COMPLETED  → All results available, Health Score computed
