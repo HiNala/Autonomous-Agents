@@ -277,10 +277,11 @@ export function AnalysisInput() {
               fontWeight: 600,
               letterSpacing: "0.04em",
               color: "#FFFFFF",
-              background: loading
-                ? "rgba(37,99,235,0.7)"
+              backgroundColor: loading ? "rgba(37,99,235,0.7)" : undefined,
+              backgroundImage: loading
+                ? "none"
                 : "linear-gradient(135deg, #1E40AF 0%, #2563EB 35%, #3B82F6 65%, #2563EB 100%)",
-              backgroundSize: "200% 100%",
+              backgroundSize: loading ? undefined : "200% 100%",
               border: "1px solid rgba(147, 197, 253, 0.45)",
               borderRadius: "var(--radius-lg)",
               cursor: loading ? "not-allowed" : "pointer",

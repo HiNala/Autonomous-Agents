@@ -10,7 +10,7 @@
 1. Vision & Architecture Overview
 2. Infrastructure (Local-First, AWS Optional)
 3. LLM Strategy: Fastino Primary Demo, OpenAI Backup
-4. Agent Specifications (7 Agents)
+4. Agent Specifications (6 Agents)
 5. Sponsor Tool Reference — Complete Endpoint Mapping
    - 5.1 Fastino Labs (PRIMARY DEMO — TLMs + GLiNER-2)
    - 5.2 OpenAI (BACKUP — General Reasoning)

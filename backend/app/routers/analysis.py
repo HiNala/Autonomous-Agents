@@ -28,7 +28,7 @@ def generate_analysis_id() -> str:
 async def start_analysis(request: AnalyzeRequest, db: AsyncSession = Depends(get_db)):
     parts = request.repo_url.rstrip("/").split("/")
     if len(parts) < 2:
-        raise HTTPException(status_code=400, detail={"code": "INVALID_URL", "message": "Not a valid GitHub URL"})
+        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_URL", "message": "Not a valid GitHub URL"}})
 
     repo_name = f"{parts[-2]}/{parts[-1].replace('.git', '')}"
     analysis_id = generate_analysis_id()
@@ -62,7 +62,7 @@ async def get_analysis(analysis_id: str, db: AsyncSession = Depends(get_db)):
     if not analysis:
         raise HTTPException(
             status_code=404,
-            detail={"code": "ANALYSIS_NOT_FOUND", "message": f"Analysis {analysis_id} not found"},
+            detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": f"Analysis {analysis_id} not found"}},
         )
 
     return AnalysisResult(

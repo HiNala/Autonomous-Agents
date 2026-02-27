@@ -1,14 +1,125 @@
 "use client";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import { GraphToolbar } from "./GraphToolbar";
-import type { GraphViewMode } from "@/types/shared";
+import type { GraphViewMode, GraphNode } from "@/types/shared";
 
 const GraphCanvas = dynamic(
   () => import("./GraphCanvas").then((m) => m.GraphCanvas),
   { ssr: false, loading: () => <GraphLoading /> }
 );
+
+function NodeDetailPanel({ node, edges, allNodes, onClose }: {
+  node: GraphNode;
+  edges: { source: string; target: string; relationship: string }[];
+  allNodes: GraphNode[];
+  onClose: () => void;
+}) {
+  const nodeMap = useMemo(() => new Map(allNodes.map((n) => [n.id, n])), [allNodes]);
+  const connections = edges
+    .filter((e) => e.source === node.id || e.target === node.id)
+    .map((e) => {
+      const otherId = e.source === node.id ? e.target : e.source;
+      const other = nodeMap.get(otherId);
+      return { relationship: e.relationship, name: other?.label ?? otherId, type: other?.type ?? "unknown" };
+    });
+
+  const typeColors: Record<string, string> = {
+    file: "var(--color-accent)",
+    directory: "#F59E0B",
+    function: "#22C55E",
+    class: "#EC4899",
+    package: "#8B5CF6",
+    endpoint: "#3B82F6",
+  };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 280,
+        background: "rgba(9, 9, 11, 0.95)",
+        borderLeft: "1px solid var(--border-default)",
+        backdropFilter: "blur(16px)",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 20,
+        animation: "slide-in-right 0.2s ease-out",
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ padding: "12px var(--space-4)", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-micro)", color: "var(--text-tertiary)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
+          NODE DETAIL
+        </span>
+        <button
+          onClick={onClose}
+          style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", padding: 4, fontSize: 16, lineHeight: 1 }}
+        >
+          &times;
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "var(--space-3) var(--space-4)" }}>
+        {/* Node type badge + name */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "var(--space-3)" }}>
+          <span style={{
+            width: 10, height: 10, borderRadius: node.type === "file" ? 2 : "50%",
+            background: typeColors[node.type] ?? "var(--text-quaternary)",
+            boxShadow: `0 0 6px ${typeColors[node.type] ?? "transparent"}44`,
+            flexShrink: 0,
+          }} />
+          <span style={{ fontSize: "var(--text-small)", color: "var(--text-primary)", fontWeight: 600, wordBreak: "break-all" }}>
+            {node.label}
+          </span>
+        </div>
+
+        {/* Properties */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: "var(--space-4)" }}>
+          <DetailRow label="Type" value={node.type} />
+          {node.path && <DetailRow label="Path" value={node.path} />}
+          {node.language && <DetailRow label="Language" value={node.language} />}
+          {node.lines != null && node.lines > 0 && <DetailRow label="Lines" value={String(node.lines)} />}
+          {node.severity && <DetailRow label="Severity" value={node.severity} color={node.severity === "critical" ? "var(--color-critical)" : undefined} />}
+        </div>
+
+        {/* Connections */}
+        {connections.length > 0 && (
+          <>
+            <div style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-micro)", color: "var(--text-tertiary)", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, marginBottom: 8 }}>
+              CONNECTIONS ({connections.length})
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {connections.slice(0, 20).map((c, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-micro)", color: "var(--text-secondary)" }}>
+                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: typeColors[c.type] ?? "var(--text-quaternary)", flexShrink: 0 }} />
+                  <span style={{ color: "var(--text-quaternary)", fontFamily: "var(--font-code)", fontSize: "9px", flexShrink: 0 }}>{c.relationship}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                </div>
+              ))}
+              {connections.length > 20 && (
+                <span style={{ fontSize: "var(--text-micro)", color: "var(--text-quaternary)", fontStyle: "italic" }}>+{connections.length - 20} more</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-micro)", color: "var(--text-quaternary)", minWidth: 60, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: "var(--text-micro)", color: color ?? "var(--text-secondary)", wordBreak: "break-all" }}>{value}</span>
+    </div>
+  );
+}
 
 function GraphLoading() {
   return (
@@ -200,6 +311,20 @@ export function GraphPanel() {
             <span style={{ color: "var(--text-tertiary)" }}>· Click node for details</span>
           </div>
         )}
+
+        {/* Node detail slide-in */}
+        {selectedNodeId && (() => {
+          const node = graphNodes.find((n) => n.id === selectedNodeId);
+          if (!node) return null;
+          return (
+            <NodeDetailPanel
+              node={node}
+              edges={graphEdges}
+              allNodes={graphNodes}
+              onClose={() => selectNode(null)}
+            />
+          );
+        })()}
 
         {/* Search active indicator */}
         {searchQuery && (

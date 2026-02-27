@@ -15,6 +15,7 @@ from app.models import Analysis, AnalysisStatus
 from app.routers.ws import manager
 from app.clients.github_client import fetch_repo_metadata
 from app.clients.tavily_client import TavilyClient
+from app.clients.openai_client import OpenAIClient
 from app.clients.fastino import FastinoClient
 from app.clients.neo4j_client import Neo4jClient
 from app.llm.provider import get_reasoning_provider
@@ -128,11 +129,11 @@ class OrchestratorAgent(BaseAgent):
             tavily_data = {}
         enriched_stats["tavily"] = tavily_data
 
-        # 5. Fastino quick scoring (high-level risk signal)
+        # 5. Quick risk scoring — Fastino primary, OpenAI fallback
         await self._broadcast_status(
-            stage="fastino_scoring",
+            stage="risk_scoring",
             progress=0.7,
-            message="Computing quick risk score with Fastino...",
+            message="Computing quick risk score...",
         )
         quick_context = (
             f"Repo: {self.analysis.repo_name}\n"
@@ -142,17 +143,52 @@ class OrchestratorAgent(BaseAgent):
             f"GitHub: {github_meta.get('repo', {})}\n"
             f"Tavily summary: {tavily_data.get('answer') if isinstance(tavily_data, dict) else ''}\n"
         )
-        fastino_quick = {}
+        quick_score = {}
+        # Try Fastino first
         try:
-            fastino = FastinoClient()
-            fastino_quick = await fastino.classify_text(
-                analysis_id=self.analysis.analysis_id,
-                text=quick_context,
-                categories=["healthy", "needs_attention", "high_risk"],
-            )
+            fi = FastinoClient()
+            if fi.available:
+                result = await fi.classify_text(
+                    analysis_id=self.analysis.analysis_id,
+                    text=quick_context,
+                    categories=["healthy", "needs_attention", "high_risk"],
+                    step_name="quick_risk_score",
+                )
+                quick_score = {"label": result.get("label", "needs_attention"), "confidence": result.get("score", 0.5)}
+                logger.info("Quick risk score computed via Fastino")
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Fastino quick scoring failed: %s", exc)
-        enriched_stats["fastinoQuickScore"] = fastino_quick
+            logger.warning("Fastino quick scoring failed: %s — falling back to OpenAI", exc)
+        # OpenAI fallback
+        if not quick_score:
+            try:
+                oai = OpenAIClient()
+                quick_score = await oai.chat(
+                    analysis_id=self.analysis.analysis_id,
+                    system_prompt=(
+                        "You are a code health triage system. Classify the repository "
+                        "into exactly one category: healthy, needs_attention, or high_risk. "
+                        "Return JSON with 'label' and 'confidence' (0-1)."
+                    ),
+                    user_prompt=quick_context,
+                    step_name="quick_risk_score_fallback",
+                    json_schema={
+                        "name": "risk_score",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "confidence": {"type": "number"},
+                            },
+                            "required": ["label", "confidence"],
+                            "additionalProperties": False,
+                        },
+                    },
+                )
+                logger.info("Quick risk score computed via OpenAI (fallback)")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("OpenAI quick scoring also failed: %s", exc)
+        enriched_stats["quickRiskScore"] = quick_score
 
         # 6. Yutori (primary) / OpenAI (backup) deep reasoning
         await self._broadcast_status(
@@ -174,7 +210,7 @@ class OrchestratorAgent(BaseAgent):
                 f"Basic stats: {stats}\n"
                 f"GitHub metadata: {github_meta}\n"
                 f"Tavily enrichment: {tavily_data}\n"
-                f"Fastino quick score: {fastino_quick}\n"
+                f"Quick risk score: {quick_score}\n"
             )
             deep_summary = await provider.reason(system_prompt, user_prompt)
         except Exception as exc:  # noqa: BLE001

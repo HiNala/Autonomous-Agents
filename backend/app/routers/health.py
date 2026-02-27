@@ -104,8 +104,8 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
         if settings.fastino_api_key:
             async with httpx.AsyncClient(timeout=6.0) as c:
                 r = await c.post(
-                    "https://api.fastino.ai/gliner-2",
-                    headers={"Authorization": f"Bearer {settings.fastino_api_key}"},
+                    "https://api.pioneer.ai/gliner-2",
+                    headers={"X-API-Key": settings.fastino_api_key, "Content-Type": "application/json"},
                     json={"task": "classify_text", "text": "hello", "schema": {"categories": ["test"]}},
                 )
                 if r.status_code in (401, 403):
@@ -135,13 +135,25 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
             return {"name": "GitHub", "status": "skipped", "message": "GITHUB_TOKEN not set (optional)"}
         return await _check("GitHub", check_github())
 
+    async def run_fastino_check() -> dict[str, Any]:
+        """Fastino is primary for classification — treat missing key as soft skip."""
+        if not settings.fastino_api_key:
+            return {"name": "Fastino (primary)", "status": "skipped", "message": "FASTINO_API_KEY not set — will use OpenAI fallback"}
+        return await _check("Fastino (primary)", check_fastino())
+
+    async def run_yutori_check() -> dict[str, Any]:
+        """Yutori is primary for research — treat missing key as soft skip."""
+        if not settings.yutori_api_key:
+            return {"name": "Yutori (primary)", "status": "skipped", "message": "YUTORI_API_KEY not set — will use OpenAI fallback"}
+        return await _check("Yutori (primary)", check_yutori())
+
     results = await asyncio.gather(
         _check("PostgreSQL", check_db()),
         _check("Neo4j", check_neo4j()),
-        _check("Yutori", check_yutori()),
-        _check("OpenAI", check_openai()),
+        run_fastino_check(),
+        run_yutori_check(),
+        _check("OpenAI (fallback)", check_openai()),
         _check("Tavily", check_tavily()),
-        _check("Fastino", check_fastino()),
         run_github_check(),
     )
 

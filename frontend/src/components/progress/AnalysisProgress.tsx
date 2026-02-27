@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import { agentColor, providerColor, severityColor } from "@/lib/colors";
 import type { AgentName, AgentStatus, LLMProvider } from "@/types/shared";
+import type { ActivityLogEntry } from "@/stores/analysisStore";
 
 // Lazy-load Cytoscape for live graph during scan
 const GraphCanvas = dynamic(
@@ -23,19 +24,19 @@ const AGENT_LABELS: Record<AgentName, string> = {
 };
 
 const PROVIDER_LABELS: Record<LLMProvider, string> = {
-  fastino: "⚡ Fastino",
   openai:  "OpenAI",
+  fastino: "Fastino",
   tavily:  "Tavily",
   yutori:  "Yutori",
 };
 
-// ── Fastino Speed Toast ──────────────────────────────────────
+// ── Agent Activity Toast ─────────────────────────────────────
 interface ToastItem {
   id: string;
   message: string;
 }
 
-function FastinoToastSystem({ toasts }: { toasts: ToastItem[] }) {
+function AgentToastSystem({ toasts }: { toasts: ToastItem[] }) {
   return (
     <div
       style={{
@@ -59,23 +60,86 @@ function FastinoToastSystem({ toasts }: { toasts: ToastItem[] }) {
             alignItems: "center",
             gap: 8,
             padding: "8px 16px",
-            background: "rgba(245, 158, 11, 0.12)",
-            border: "1px solid rgba(245, 158, 11, 0.3)",
+            background: "rgba(34, 197, 94, 0.12)",
+            border: "1px solid rgba(34, 197, 94, 0.3)",
             borderRadius: "var(--radius-md)",
             backdropFilter: "blur(12px)",
             WebkitBackdropFilter: "blur(12px)",
             fontSize: "var(--text-micro)",
-            color: "#FF9870",
+            color: "#4ADE80",
             fontFamily: "var(--font-code)",
             whiteSpace: "nowrap",
             animation: "slide-up 0.2s ease-out",
-            boxShadow: "0 4px 16px rgba(245,158,11,0.15)",
+            boxShadow: "0 4px 16px rgba(34,197,94,0.15)",
           }}
         >
-          <span>⚡</span>
+          <span style={{ fontSize: "0.7rem" }}>&#9679;</span>
           <span>{t.message}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Activity Feed ────────────────────────────────────────────
+
+const PROVIDER_COLORS: Record<string, string> = {
+  fastino: "#F59E0B",
+  yutori: "#EC4899",
+  openai: "#22C55E",
+  tavily: "#3B82F6",
+  neo4j: "#018BFF",
+};
+
+function ActivityFeed({ entries }: { entries: ActivityLogEntry[] }) {
+  const visible = entries.slice(-8).reverse();
+  return (
+    <div
+      style={{
+        background: "rgba(17, 17, 22, 0.72)",
+        backdropFilter: "blur(12px) saturate(1.4)",
+        WebkitBackdropFilter: "blur(12px) saturate(1.4)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-lg)",
+        overflow: "hidden",
+        maxHeight: 220,
+      }}
+    >
+      <div style={{ padding: "12px var(--space-4)", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2 style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-micro)", color: "var(--text-tertiary)", margin: 0, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>
+          AGENT ACTIVITY
+        </h2>
+        <span style={{ fontSize: "var(--text-micro)", fontFamily: "var(--font-code)", color: "var(--text-quaternary)" }}>
+          {entries.length} events
+        </span>
+      </div>
+      <div style={{ padding: "var(--space-2) 0", overflowY: "auto", maxHeight: 168 }}>
+        {visible.map((entry) => {
+          const pColor = PROVIDER_COLORS[entry.provider] ?? "var(--text-quaternary)";
+          return (
+            <div
+              key={entry.id}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "var(--space-2)",
+                padding: "5px var(--space-4)",
+                animation: "slide-up 0.2s ease-out",
+              }}
+            >
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: pColor, flexShrink: 0, marginTop: 5, boxShadow: `0 0 4px ${pColor}66` }} />
+              <span style={{ fontSize: "var(--text-micro)", color: "var(--text-secondary)", lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {entry.message}
+              </span>
+              {entry.provider && (
+                <span style={{ fontSize: "9px", fontFamily: "var(--font-code)", color: pColor, opacity: 0.7, flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  {entry.provider}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -231,16 +295,15 @@ function AgentRow({ agent, status, index }: { agent: AgentName; status: AgentSta
 
 // ── Main Component ───────────────────────────────────────────
 export function AnalysisProgress() {
-  const { agentStatuses, liveFindings, graphNodes, graphEdges } = useAnalysisStore();
+  const { agentStatuses, liveFindings, graphNodes, graphEdges, activityLog } = useAnalysisStore();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  // Show Fastino toast when mapper or pattern agents complete
+  // Show toast when agents complete
   useEffect(() => {
     const mapper = agentStatuses.mapper;
-    const mapperDone = mapper.status === "complete" && mapper.durationMs;
-    if (mapperDone && mapper.provider === "fastino") {
-      const id = `fastino-${Date.now()}`;
-      const msg = `Fastino: ${graphNodes.length} nodes classified in ${mapper.durationMs}ms`;
+    if (mapper.status === "complete" && mapper.durationMs) {
+      const id = `mapper-${Date.now()}`;
+      const msg = `${graphNodes.length} files mapped in ${mapper.durationMs}ms`;
       setToasts((t) => [...t, { id, message: msg }]);
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
     }
@@ -387,6 +450,11 @@ export function AnalysisProgress() {
               </div>
             </div>
           )}
+
+          {/* Agent Activity Feed */}
+          {activityLog.length > 0 && (
+            <ActivityFeed entries={activityLog} />
+          )}
         </div>
 
         {/* Right column — LIVE CYTOSCAPE GRAPH */}
@@ -446,8 +514,22 @@ export function AnalysisProgress() {
                   justifyContent: "center",
                   gap: "var(--space-3)",
                   color: "var(--text-tertiary)",
+                  overflow: "hidden",
                 }}
               >
+                {/* Localized scan line */}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    height: 2,
+                    background: "linear-gradient(90deg, transparent 0%, rgba(59,130,246,0) 10%, rgba(59,130,246,0.5) 50%, rgba(59,130,246,0) 90%, transparent 100%)",
+                    boxShadow: "0 0 16px rgba(59,130,246,0.3)",
+                    animation: "graph-scan 2.5s linear infinite",
+                    pointerEvents: "none",
+                  }}
+                />
                 <div
                   style={{
                     width: 48,
@@ -476,8 +558,8 @@ export function AnalysisProgress() {
         </div>
       </div>
 
-      {/* Fastino speed toasts */}
-      <FastinoToastSystem toasts={toasts} />
+      {/* Agent speed toasts */}
+      <AgentToastSystem toasts={toasts} />
     </>
   );
 }

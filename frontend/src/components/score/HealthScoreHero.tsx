@@ -67,7 +67,7 @@ export function HealthScoreHero() {
   return (
     <div
       style={{
-        background: `rgba(17, 17, 22, 0.72)`,
+        backgroundColor: severityBg,
         backdropFilter: "blur(12px) saturate(1.4)",
         WebkitBackdropFilter: "blur(12px) saturate(1.4)",
         border: "1px solid rgba(255, 255, 255, 0.07)",
@@ -82,7 +82,6 @@ export function HealthScoreHero() {
         overflow: "hidden",
         opacity: phase >= 1 ? 1 : 0,
         transition: "opacity 0.3s ease",
-        backgroundColor: severityBg,
         boxShadow:
           "0 0 0 1px rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0,0,0,0.4)",
       }}

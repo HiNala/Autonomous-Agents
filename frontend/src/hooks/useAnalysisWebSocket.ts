@@ -48,6 +48,15 @@ export function useAnalysisWebSocket(analysisId: string | null) {
           api.getChains(analysisId).then((r) => store.setChains(r.chains)).catch(() => null);
         }
         break;
+      case "tool_activity":
+        store.addActivity({
+          id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          agent: msg.agent ?? "system",
+          message: msg.message ?? "",
+          provider: msg.provider ?? "",
+          timestamp: msg.timestamp ?? new Date().toISOString(),
+        });
+        break;
       case "error":
         if (!msg.recoverable) store.setFailed(msg.message);
         break;

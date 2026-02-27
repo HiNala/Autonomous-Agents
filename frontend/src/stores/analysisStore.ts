@@ -17,6 +17,14 @@ import type {
   FindingsSummary,
 } from "@/types/shared";
 
+export interface ActivityLogEntry {
+  id: string;
+  agent: string;
+  message: string;
+  provider: string;
+  timestamp: string;
+}
+
 interface AnalysisStore {
   analysisId: string | null;
   status: AnalysisStatus;
@@ -29,6 +37,7 @@ interface AnalysisStore {
   highlightedChainId: string | null;
   findings: Finding[];
   liveFindings: Array<{ id: string; severity: Severity; title: string; agent: AgentName }>;
+  activityLog: ActivityLogEntry[];
   findingFilters: { severity?: Severity; agent?: AgentName; category?: string };
   selectedFindingId: string | null;
   fixes: Fix[];
@@ -42,6 +51,7 @@ interface AnalysisStore {
   addGraphNode: (node: GraphNode) => void;
   addGraphEdge: (edge: GraphEdge) => void;
   addLiveFinding: (finding: { id: string; severity: Severity; title: string; agent: AgentName }) => void;
+  addActivity: (entry: ActivityLogEntry) => void;
   setComplete: (healthScore: HealthScore, findingsSummary: FindingsSummary, duration: number) => void;
   setFailed: (message: string) => void;
   setResult: (result: AnalysisResult) => void;
@@ -76,6 +86,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   highlightedChainId: null,
   findings: [],
   liveFindings: [],
+  activityLog: [],
   findingFilters: {},
   selectedFindingId: null,
   fixes: [],
@@ -83,7 +94,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   chains: [],
   errorMessage: null,
 
-  startAnalysis: (id) => set({ analysisId: id, status: "queued", graphNodes: [], graphEdges: [], liveFindings: [], agentStatuses: defaultAgentStatuses(), errorMessage: null }),
+  startAnalysis: (id) => set({ analysisId: id, status: "queued", graphNodes: [], graphEdges: [], liveFindings: [], activityLog: [], agentStatuses: defaultAgentStatuses(), errorMessage: null }),
 
   updateAgentStatus: (agent, status) =>
     set((s) => ({ agentStatuses: { ...s.agentStatuses, [agent]: status } })),
@@ -93,6 +104,9 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
 
   addLiveFinding: (finding) =>
     set((s) => ({ liveFindings: [...s.liveFindings.slice(-20), finding] })),
+
+  addActivity: (entry) =>
+    set((s) => ({ activityLog: [...s.activityLog.slice(-50), entry] })),
 
   setComplete: (healthScore, findingsSummary, duration) =>
     set((s) => ({
@@ -120,7 +134,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   reset: () => set({
     analysisId: null, status: "queued", result: null,
     agentStatuses: defaultAgentStatuses(),
-    graphNodes: [], graphEdges: [], liveFindings: [],
+    graphNodes: [], graphEdges: [], liveFindings: [], activityLog: [],
     findings: [], fixes: [], fixSummary: null, chains: [],
     errorMessage: null,
     selectedNodeId: null, selectedFindingId: null, highlightedChainId: null,

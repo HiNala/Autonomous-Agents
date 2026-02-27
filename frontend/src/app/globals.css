@@ -504,6 +504,13 @@ body {
   100% { background-position: 200% 0; }
 }
 
+@keyframes graph-scan {
+  0%   { top: -2px; opacity: 0; }
+  5%   { opacity: 1; }
+  95%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
 @keyframes chain-pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }

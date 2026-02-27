@@ -69,6 +69,9 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
             gap: "var(--space-5)",
           }}
         >
+          {/* Summary banner */}
+          <AnalysisSummaryBanner />
+
           {/* Row 1 — Score hero + breakdown */}
           <div
             style={{
@@ -120,6 +123,66 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
       {/* ── FAILED STATE ──────────────────────────────────── */}
       {isFailed && <FailedState />}
     </AppShell>
+  );
+}
+
+function AnalysisSummaryBanner() {
+  const { result, findings } = useAnalysisStore();
+  if (!result) return null;
+
+  const totalFiles = result.stats?.total_files ?? result.stats?.totalFiles ?? 0;
+  const duration = result.timestamps?.duration ?? result.duration_seconds ?? 0;
+  const findingCount = findings.length || result.findings?.total || 0;
+  const criticalCount = findings.filter((f) => f.severity === "critical").length || result.findings?.critical || 0;
+
+  const repoName = result.repoName ?? result.repo_name ?? "repository";
+
+  let summaryText: string;
+  if (findingCount === 0) {
+    summaryText = `Scanned ${totalFiles} files in ${repoName} — clean bill of health!`;
+  } else if (criticalCount > 0) {
+    summaryText = `Found ${findingCount} issues (${criticalCount} critical) across ${totalFiles} files in ${repoName}`;
+  } else {
+    summaryText = `Found ${findingCount} issues across ${totalFiles} files in ${repoName}`;
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "12px var(--space-5)",
+        background: findingCount === 0
+          ? "rgba(34, 197, 94, 0.06)"
+          : criticalCount > 0
+            ? "rgba(239, 68, 68, 0.06)"
+            : "rgba(59, 130, 246, 0.06)",
+        border: `1px solid ${findingCount === 0 ? "rgba(34,197,94,0.18)" : criticalCount > 0 ? "rgba(239,68,68,0.18)" : "rgba(59,130,246,0.18)"}`,
+        borderRadius: "var(--radius-lg)",
+        animation: "slide-up 0.4s ease-out",
+      }}
+    >
+      <span style={{ fontSize: "var(--text-body)", color: "var(--text-secondary)", fontWeight: 500 }}>
+        {summaryText}
+      </span>
+      {duration > 0 && (
+        <span
+          style={{
+            fontFamily: "var(--font-code)",
+            fontSize: "var(--text-micro)",
+            color: "var(--text-tertiary)",
+            background: "rgba(255,255,255,0.04)",
+            padding: "4px 10px",
+            borderRadius: "var(--radius-full)",
+            border: "1px solid var(--border-subtle)",
+            flexShrink: 0,
+          }}
+        >
+          {duration}s
+        </span>
+      )}
+    </div>
   );
 }
 

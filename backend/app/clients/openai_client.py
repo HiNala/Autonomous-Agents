@@ -1,8 +1,8 @@
 """
-OpenAI client — backup reasoning and structured outputs.
+OpenAI client — primary reasoning engine and structured outputs.
 
-Used when Fastino can't handle open-ended reasoning (code analysis,
-fix documentation, chain analysis).
+Handles file classification, code quality analysis, deep pattern
+detection, fix generation, and chain analysis via GPT-4o.
 """
 from __future__ import annotations
 

@@ -1,10 +1,8 @@
 """
 Fastino GLiNER-2 client — entity extraction, text classification, structured JSON.
 
-- If FASTINO_API_KEY is set: uses Fastino hosted API (https://api.fastino.com/gliner-2).
+- If FASTINO_API_KEY is set: uses Pioneer hosted API (https://api.pioneer.ai/gliner-2).
 - Otherwise: uses local GLiNER2 (pip install gliner2, from gliner2 import GLiNER2).
-
-Repository: https://github.com/fastino-ai/GLiNER2
 """
 from __future__ import annotations
 
@@ -20,7 +18,7 @@ from app.clients.tool_logger import log_tool_call
 
 logger = logging.getLogger(__name__)
 
-FASTINO_BASE = "https://api.fastino.com"
+FASTINO_BASE = "https://api.pioneer.ai"
 LOCAL_MODEL_ID = "fastino/gliner2-base-v1"
 
 # Lazy-loaded local model (sync); loaded once per process
@@ -92,7 +90,7 @@ class FastinoClient:
     def __init__(self):
         self.settings = get_settings()
         self._headers = {
-            "x-api-key": self.settings.fastino_api_key,
+            "X-API-Key": self.settings.fastino_api_key,
             "Content-Type": "application/json",
         }
 

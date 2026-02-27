@@ -1,8 +1,8 @@
 # VIBE CHECK — Codebase Intelligence Engine
 ## Sponsor API Reference · Autonomous Agents Hackathon · Feb 27, 2026
 
-> **Quick links:** [docs.yutori.com](https://docs.yutori.com) · [sensoai.mintlify.app](https://sensoai.mintlify.app/introduction) · [neo4j.com/docs](https://neo4j.com/docs) · [docs.tavily.com](https://docs.tavily.com)  
-> **Support:** `support@yutori.com` · `tom@senso.ai` · hackathon Discord
+> **Quick links:** [docs.yutori.com](https://docs.yutori.com) · [neo4j.com/docs](https://neo4j.com/docs) · [docs.tavily.com](https://docs.tavily.com)  
+> **Support:** `support@yutori.com` · hackathon Discord
 
 ---
 
@@ -11,7 +11,6 @@
 | Sponsor | Priority | Role in VIBE CHECK |
 |---|---|---|
 | **Yutori** | 🔴 PRIMARY REASONING | n1 powers all 5 specialist agents (OpenAI-compatible). Browsing API does live CVE lookups. Research API runs deep dependency intelligence. Scouting API monitors for new CVEs post-analysis. |
-| **Senso** | 🔴 ESSENTIAL | Context OS — all findings flow in via `/content`, agents query via `/search` and `/generate`, rules + webhooks are the real-time event bus |
 | **Neo4j** | 🔴 ESSENTIAL | The knowledge graph — files, functions, dependencies, CVE chains, blast radius. The graph IS the product. |
 | **Tavily** | 🔴 ESSENTIAL | Fast supplemental web search — quick CVE lookups, changelog snippets, confirming fix versions |
 | **OpenAI** | 🟡 BACKUP | Fallback reasoning when Yutori n1 is unavailable. Structured outputs for schema-critical graph writes. |
@@ -24,15 +23,14 @@
 ## Table of Contents
 
 1. [Yutori — Primary Reasoning Engine 🔴](#1-yutori--primary-reasoning-engine-)
-2. [Senso — Context OS 🔴](#2-senso--context-os-)
-3. [Neo4j — Knowledge Graph 🔴](#3-neo4j--knowledge-graph-)
-4. [Tavily — Supplemental Web Search 🔴](#4-tavily--supplemental-web-search-)
-5. [OpenAI — Backup Reasoning 🟡](#5-openai--backup-reasoning-)
-6. [Fastino — Fast Entity Extraction 🟡](#6-fastino--fast-entity-extraction-)
-7. [AWS — Infrastructure 🟡](#7-aws--infrastructure-)
-8. [Render — Deployment 🟢](#8-render--deployment-)
-9. [Full Integration Guide](#9-full-integration-guide)
-10. [Environment Variables Checklist](#10-environment-variables-checklist)
+2. [Neo4j — Knowledge Graph 🔴](#2-neo4j--knowledge-graph-)
+3. [Tavily — Supplemental Web Search 🔴](#3-tavily--supplemental-web-search-)
+4. [OpenAI — Backup Reasoning 🟡](#4-openai--backup-reasoning-)
+5. [Fastino — Fast Entity Extraction 🟡](#5-fastino--fast-entity-extraction-)
+6. [AWS — Infrastructure 🟡](#6-aws--infrastructure-)
+7. [Render — Deployment 🟢](#7-render--deployment-)
+8. [Full Integration Guide](#8-full-integration-guide)
+9. [Environment Variables Checklist](#9-environment-variables-checklist)
 
 ---
 
@@ -755,16 +753,6 @@ export async function POST(req: NextRequest) {
     const findings = payload.output ?? [];
 
     for (const f of findings) {
-        // Push to Senso so all agents have the new CVE context
-        await fetch(`${process.env.SENSO_API}/content/raw`, {
-            method: 'POST',
-            headers: { 'X-Api-Key': process.env.SENSO_API_KEY!, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                title: `Scout Alert: ${f.cve_id} in ${f.package}`,
-                text:  `Severity: ${f.severity}\nCVSS: ${f.cvss}\n${f.summary}\nFix: ${f.fix}`
-            })
-        });
-
         // Broadcast to dashboard via Server-Sent Events / WebSocket
         await broadcastToClients({ type: 'new_cve_alert', ...f });
     }
@@ -896,457 +884,7 @@ YUTORI_API_KEY=yt-...
 
 ---
 
-## 2. Senso — Context OS 🔴
-
-> Senso is the **knowledge layer** between all your agents and the raw data. Instead of every agent querying Neo4j directly or re-running expensive Yutori tasks, everything flows into Senso once, and every agent queries Senso with natural language. The rules + webhooks system makes Senso the real-time event bus — when Senso classifies a new CRITICAL finding, it fires your dashboard webhook automatically with no polling required.
-
-**Base URL:** `https://sdk.senso.ai/api/v1`  
-**Auth:** `X-Api-Key: YOUR_KEY` on every request  
-**Get key:** Email `tom@senso.ai`  
-**Docs:** [sensoai.mintlify.app/introduction](https://sensoai.mintlify.app/introduction)
-
-```python
-import requests, os, time
-
-SENSO_API = "https://sdk.senso.ai/api/v1"
-SENSO_HDR = {
-    "X-Api-Key": os.environ["SENSO_API_KEY"],
-    "Content-Type": "application/json"
-}
-```
-
----
-
-### Content Ingestion
-
-All Yutori Research results, Neo4j graph analysis, security findings, and fix documents get pushed into Senso so the full system can query them with natural language.
-
-#### POST `/content/raw` — Ingest text
-
-```python
-def senso_ingest(title: str, text: str, category_id: str = None,
-                 wait_for_indexing: bool = True) -> str:
-    """
-    Push text content into Senso. Returns content_id.
-    Status is async (202 Accepted) — set wait_for_indexing=True to block until searchable.
-    """
-    payload = {"title": title, "text": text}
-    if category_id:
-        payload["category_id"] = category_id
-
-    resp = requests.post(f"{SENSO_API}/content/raw", headers=SENSO_HDR, json=payload)
-    resp.raise_for_status()
-    content_id = resp.json()["id"]  # 202 Accepted
-
-    if wait_for_indexing:
-        for _ in range(30):
-            status = requests.get(
-                f"{SENSO_API}/content/{content_id}", headers=SENSO_HDR
-            ).json().get("processing_status")
-            if status == "completed":
-                break
-            elif status == "failed":
-                raise RuntimeError(f"Senso indexing failed: {content_id}")
-            time.sleep(1)
-
-    return content_id
-
-
-# Ingest a Yutori Research result
-yutori_result = research(query="All CVEs for express@4.17.1")
-senso_ingest(
-    title="Security Research: express@4.17.1",
-    text=str(yutori_result["output"]),
-    category_id=security_category_id
-)
-
-# Ingest a CVE finding from Neo4j + Yutori
-senso_ingest(
-    title="CVE-2024-29041 — express@4.17.1 Open Redirect",
-    text="""Severity: HIGH
-CVSS: 7.5
-Package: express@4.17.1
-Description: Open redirect vulnerability. Attackers can redirect users to malicious URLs.
-Fixed in: 4.19.2
-Blast Radius: 8 files, 23 functions, 4 API endpoints
-Affected: src/routes/api.js (lines 12-45), src/middleware/auth.js (lines 8-22)
-Fix: npm install express@4.19.2""",
-    category_id=security_category_id
-)
-```
-
-#### POST `/content/file` — Ingest files
-
-```python
-def senso_ingest_file(file_path: str, title: str, category_id: str = None) -> str:
-    """Upload PDF, DOCX, or Markdown. Must use multipart — do NOT set Content-Type."""
-    file_headers = {"X-Api-Key": os.environ["SENSO_API_KEY"]}
-    with open(file_path, "rb") as f:
-        data = {"title": title}
-        if category_id:
-            data["category_id"] = category_id
-        resp = requests.post(
-            f"{SENSO_API}/content/file",
-            headers=file_headers,
-            files={"file": (os.path.basename(file_path), f)},
-            data=data
-        )
-    resp.raise_for_status()
-    return resp.json()["id"]
-```
-
-#### GET `/content/{id}` — Check status
-
-```python
-resp = requests.get(f"{SENSO_API}/content/{content_id}", headers=SENSO_HDR)
-data = resp.json()
-# {
-#   "id": "uuid",
-#   "title": "...",
-#   "processing_status": "completed" | "processing" | "queued" | "failed",
-#   "created_at": "2026-02-27T10:00:00Z"
-# }
-```
-
-#### GET `/content` — List all (paginated)
-
-```python
-def senso_list_all(limit: int = 100) -> list:
-    items, offset = [], 0
-    while True:
-        resp = requests.get(
-            f"{SENSO_API}/content", headers=SENSO_HDR,
-            params={"limit": limit, "offset": offset}
-        )
-        batch = resp.json().get("items", [])
-        items.extend(batch)
-        if len(batch) < limit:
-            break
-        offset += limit
-    return items
-```
-
----
-
-### Knowledge Taxonomy
-
-Organise findings by domain so agents can query across relevant subsets.
-
-#### POST `/categories/bulk` — One-time setup
-
-```python
-def senso_setup_taxonomy() -> dict:
-    """Create the full VIBE CHECK category tree in one API call."""
-    resp = requests.post(
-        f"{SENSO_API}/categories/bulk",
-        headers=SENSO_HDR,
-        json={
-            "categories": [
-                {"name": "Security Findings", "topics": [
-                    {"name": "CVE Vulnerabilities"},
-                    {"name": "Code Security"},
-                    {"name": "Config Issues"}
-                ]},
-                {"name": "Code Quality", "topics": [
-                    {"name": "Bugs"}, {"name": "Dead Code"}, {"name": "Complexity"}
-                ]},
-                {"name": "Fix Documentation", "topics": [
-                    {"name": "Critical Fixes"}, {"name": "Migration Guides"}
-                ]},
-                {"name": "Yutori Intelligence", "topics": [
-                    {"name": "Research Reports"}, {"name": "Best Practices"}
-                ]},
-            ]
-        }
-    )
-    resp.raise_for_status()
-    # Map name → category_id for easy use
-    return {cat["name"]: cat["category_id"]
-            for cat in resp.json().get("categories", [])}
-
-CATEGORIES = senso_setup_taxonomy()
-```
-
-#### POST `/categories/{id}/topics` — Add a topic later
-
-```python
-resp = requests.post(
-    f"{SENSO_API}/categories/{category_id}/topics",
-    headers=SENSO_HDR,
-    json={"name": "New Topic Name"}
-)
-topic_id = resp.json()["topic_id"]
-```
-
----
-
-### Search — `POST /search`
-
-Ask any natural language question and get an AI-synthesized, cited answer drawn from all ingested content — Yutori research results, CVE data, fix docs, everything.
-
-```python
-def senso_ask(question: str, max_results: int = 10) -> dict:
-    """
-    Natural language query over all ingested content.
-    Returns: { answer (str), sources (list), total_results (int), processing_time_ms (int) }
-    """
-    resp = requests.post(
-        f"{SENSO_API}/search",
-        headers=SENSO_HDR,
-        json={"query": question, "max_results": max_results}
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-# Key queries for each agent stage
-senso_ask("What are all critical severity CVEs and their blast radius?")["answer"]
-senso_ask("Which single package fix would eliminate the most vulnerability chains?")["answer"]
-senso_ask("What are the top 5 quick-win fixes under 30 minutes?")["answer"]
-senso_ask("Which functions handle user input and have known vulnerabilities?")["answer"]
-senso_ask("What anti-patterns were found and what are the recommended alternatives?")["answer"]
-senso_ask("What is the overall codebase risk level — CRITICAL, HIGH, MEDIUM, or LOW?")["answer"]
-senso_ask("Summarize all security findings for the executive dashboard header")["answer"]
-```
-
----
-
-### Generate — `POST /generate`
-
-Generate new content (fix plans, executive summaries, reports) grounded in all ingested data.
-
-```python
-def senso_generate(instructions: str, content_type: str = "report",
-                   save: bool = True, max_results: int = 20) -> str:
-    """
-    Generate AI content from the full knowledge base.
-
-    Parameters:
-      instructions    Detailed prompt for what to generate
-      content_type    Label for the generated doc (any string)
-      save            True = persist as new content in Senso (searchable later)
-      max_results     Number of source documents to draw from (higher = richer)
-
-    Returns:
-      generated_text string
-    """
-    resp = requests.post(
-        f"{SENSO_API}/generate",
-        headers=SENSO_HDR,
-        json={
-            "content_type": content_type,
-            "instructions": instructions,
-            "save": save,
-            "max_results": max_results
-        }
-    )
-    resp.raise_for_status()
-    return resp.json()["generated_text"]
-    # Also available: resp.json()["sources"], resp.json()["processing_time_ms"]
-
-
-# Doctor Agent: final prioritized fix plan
-fix_plan = senso_generate(
-    instructions="""Generate a complete prioritized fix plan for this codebase.
-    Order: 1) Severity (CRITICAL first), 2) Blast radius (most files affected),
-    3) Effort (quick wins when severity is equal).
-
-    For each fix include:
-    - Fix ID (FIX-001, FIX-002 ...)
-    - Severity + CVSS score
-    - What is wrong and why it matters
-    - Affected files and function count
-    - Step-by-step instructions with exact commands
-    - BEFORE / AFTER code snippets where applicable
-    - Which CVE chains this fix resolves
-    - Effort estimate: Quick (<30min) | Medium (1-2hr) | Complex (>2hr)""",
-    content_type="fix_plan",
-    save=True  # persist so dashboard can retrieve it later
-)
-
-# Executive summary for dashboard header (ephemeral — don't persist)
-summary = senso_generate(
-    instructions="""Write a 3-paragraph executive summary of this codebase analysis.
-    Paragraph 1: Overall health and risk level (non-technical language).
-    Paragraph 2: The 3 most critical issues and their business impact.
-    Paragraph 3: Recommended immediate actions and estimated remediation time.""",
-    content_type="executive_summary",
-    save=False
-)
-```
-
----
-
-### Reusable Prompts & Templates
-
-Define prompt templates once, call with variables from any agent.
-
-```python
-# Create a prompt template with {{variable}} placeholders
-resp = requests.post(
-    f"{SENSO_API}/prompts",
-    headers=SENSO_HDR,
-    json={
-        "name": "Fix Documentation Generator",
-        "text": """For the {{finding_type}} in {{file_path}} (lines {{line_range}}):
-1. Root cause explanation for a senior developer
-2. Business/security impact of leaving this unfixed
-3. Blast radius: list of affected files and functions
-4. Step-by-step fix with exact code changes (BEFORE/AFTER)
-5. Commands: {{package_name}} {{current_version}} → {{target_version}}
-6. Verification steps
-7. Effort estimate"""
-    }
-)
-prompt_id = resp.json()["prompt_id"]
-
-# Create an output template (text or JSON)
-resp = requests.post(
-    f"{SENSO_API}/templates",
-    headers=SENSO_HDR,
-    json={
-        "name": "Fix JSON Schema",
-        "output_type": "json",
-        "text": """{
-  "fix_id": "{{fix_id}}",
-  "severity": "{{severity}}",
-  "file": "{{file_path}}",
-  "effort_minutes": {{effort_minutes}},
-  "steps": {{steps_array}}
-}"""
-    }
-)
-template_id = resp.json()["template_id"]
-
-# Generate using a saved prompt + template
-resp = requests.post(
-    f"{SENSO_API}/generate/prompt",
-    headers=SENSO_HDR,
-    json={
-        "prompt_id": prompt_id,
-        "template_id": template_id,
-        "finding_type": "Dependency Vulnerability",
-        "file_path": "src/routes/api.js",
-        "line_range": "12-45",
-        "package_name": "express",
-        "current_version": "4.17.1",
-        "target_version": "4.19.2"
-    }
-)
-generated = resp.json()["generated_text"]
-```
-
----
-
-### Rules + Triggers + Webhooks — Event Bus
-
-When content matching a rule is ingested, Senso **automatically fires your webhook** — no polling. This is how the dashboard gets real-time CRITICAL alerts as agents push findings.
-
-```
-Agent pushes finding → Senso indexes → Rule matches → Trigger fires → POST to your endpoint
-```
-
-```python
-def senso_setup_event_bus(dashboard_url: str, dashboard_secret: str) -> dict:
-    """
-    Wire up: CRITICAL/HIGH findings → webhook → dashboard.
-    Call once during app initialization.
-    """
-    # 1) Register your webhook endpoint
-    wh = requests.post(f"{SENSO_API}/webhooks", headers=SENSO_HDR, json={
-        "name": "VIBE CHECK Dashboard",
-        "url": dashboard_url,
-        "auth": {"type": "bearer", "token": dashboard_secret}
-    }).json()
-    webhook_id = wh["webhook_id"]
-
-    rule_ids = {}
-    for severity in ["CRITICAL", "HIGH"]:
-        # 2) Create a classification rule
-        rule = requests.post(f"{SENSO_API}/rules", headers=SENSO_HDR, json={
-            "name": f"{severity} Severity Detector",
-            "type": "classification",
-            "target": "all"          # applies to all ingested content
-        }).json()
-        rule_id = rule["rule_id"]
-        rule_ids[severity] = rule_id
-
-        # 3) Add the value to match against ingested text
-        requests.post(
-            f"{SENSO_API}/rules/{rule_id}/values",
-            headers=SENSO_HDR,
-            json={"value": severity}   # matches if content contains this string
-        )
-
-        # 4) Create trigger: rule match → fire webhook
-        requests.post(f"{SENSO_API}/triggers", headers=SENSO_HDR, json={
-            "name": f"Alert on {severity}",
-            "rule_id": rule_id,
-            "rule_value_id": severity,
-            "webhook_id": webhook_id
-        })
-
-    print("Senso event bus configured — CRITICAL/HIGH findings will fire dashboard webhook")
-    return rule_ids
-```
-
-#### Senso webhook payload shape
-
-```json
-{
-  "trigger_id": "uuid",
-  "rule_id": "uuid",
-  "rule_value_id": "CRITICAL",
-  "content": {
-    "id": "uuid",
-    "title": "CVE-2024-29041 — express@4.17.1",
-    "text": "Severity: CRITICAL\nCVSS: 9.1\n...",
-    "processing_status": "completed",
-    "created_at": "2026-02-27T10:00:00Z"
-  },
-  "fired_at": "2026-02-27T10:00:01Z"
-}
-```
-
-#### Handle Senso webhook in Next.js
-
-```typescript
-// app/api/senso-events/route.ts
-export async function POST(req: NextRequest) {
-    const auth = req.headers.get('authorization');
-    if (auth !== `Bearer ${process.env.DASHBOARD_WEBHOOK_SECRET}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { content, rule_value_id } = await req.json();
-    await broadcastToClients({
-        type: 'new_finding',
-        severity: rule_value_id,
-        title: content.title,
-        summary: content.text.slice(0, 200),
-    });
-    return NextResponse.json({ received: true });
-}
-```
-
----
-
-### Error Reference
-
-| Status | Meaning | Action |
-|---|---|---|
-| `202 Accepted` | Ingestion queued — async | Poll `GET /content/{id}` |
-| `200 OK` | Success | Use body |
-| `201 Created` | Resource created | Use returned ID |
-| `204 No Content` | Success (DELETE) | Done |
-| `400 Bad Request` | Bad JSON / missing fields | Check request body |
-| `401 Unauthorized` | Bad `X-Api-Key` | Check header name and key value |
-| `404 Not Found` | ID doesn't exist | Verify ID |
-| `409 Conflict` | Duplicate name | Use unique name |
-| `500 Internal` | Server error | Retry with backoff |
-
----
-
-## 3. Neo4j — Knowledge Graph 🔴
+## 2. Neo4j — Knowledge Graph 🔴
 
 **AuraDB Free:** 200k nodes, 400k rels — sign up at [console.neo4j.io](https://console.neo4j.io)
 
@@ -1459,7 +997,7 @@ def get_risk_ranked_dependencies():
 
 ---
 
-## 4. Tavily — Supplemental Web Search 🔴
+## 3. Tavily — Supplemental Web Search 🔴
 
 Use Tavily for **fast targeted lookups** when Yutori Research is overkill: confirm a CVSS score, grab a changelog snippet, verify a fixed version. Yutori Research goes wider and deeper; Tavily goes faster.
 
@@ -1514,7 +1052,7 @@ def quick_exploit_check(cve_id: str) -> str:
 
 ---
 
-## 5. OpenAI — Backup Reasoning 🟡
+## 4. OpenAI — Backup Reasoning 🟡
 
 Use as fallback when Yutori n1 is unavailable. Interfaces are nearly identical — swap the model name.
 
@@ -1571,7 +1109,7 @@ result: AnalysisResult = resp.choices[0].message.parsed
 
 ---
 
-## 6. Fastino — Fast Entity Extraction 🟡
+## 5. Fastino — Fast Entity Extraction 🟡
 
 Pre-process every file before sending to Yutori/OpenAI. Extract function names, imports, API endpoints at CPU speed (<150ms) to reduce the context window and focus the heavy models on what matters.
 
@@ -1621,7 +1159,7 @@ def process_file_efficiently(file_content: str, file_path: str) -> dict:
 
 ---
 
-## 7. AWS — Infrastructure 🟡
+## 6. AWS — Infrastructure 🟡
 
 ```python
 import boto3, json, os
@@ -1670,7 +1208,7 @@ def mark_agent_done(repo_id: str, agent: str):
 
 ---
 
-## 8. Render — Deployment 🟢
+## 7. Render — Deployment 🟢
 
 ```yaml
 # render.yaml
@@ -1682,8 +1220,6 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: YUTORI_API_KEY
-        sync: false
-      - key: SENSO_API_KEY
         sync: false
       - key: NEO4J_URI
         sync: false
@@ -1701,7 +1237,7 @@ services:
 
 ---
 
-## 9. Full Integration Guide
+## 8. Full Integration Guide
 
 ### How all agents connect
 
@@ -1714,7 +1250,6 @@ GitHub URL
 │  Fastino → entity extraction per file           │
 │  Yutori n1 → AST analysis → graph nodes         │
 │  Neo4j → write File / Function / Package nodes  │
-│  Senso → ingest file summaries                  │
 └────────────────────┬────────────────────────────┘
                      │ (parallel)
          ┌───────────┼────────────┐
@@ -1725,35 +1260,30 @@ GitHub URL
 │ bug/smell    │ │ per-file     │ │ arch review  │
 │ detection    │ │ analysis     │ │              │
 │              │ │ Yutori       │ │ Yutori       │
-│ Senso ingest │ │ Research:    │ │ Research:    │
-│ findings     │ │ all deps     │ │ best pracs   │
+│              │ │ Research:    │ │ Research:    │
+│              │ │ all deps     │ │ best pracs   │
 │              │ │ Tavily:      │ │              │
-│              │ │ quick checks │ │ Senso ingest │
-│              │ │ Neo4j: CVE   │ │ patterns     │
-│              │ │ Senso ingest │ │              │
+│              │ │ quick checks │ │              │
+│              │ │ Neo4j: CVE   │ │              │
 └──────────────┘ └──────────────┘ └──────────────┘
          │           │            │
          └───────────┼────────────┘
                      ▼
 ┌─────────────────────────────────────────────────┐
 │  DOCTOR AGENT                                   │
-│  Senso /search → "what are critical findings?"  │
 │  Yutori n1 → generate fix doc for each finding  │
 │  Yutori Browse → fetch migration guides         │
-│  Senso /generate → final prioritized fix plan   │
 │  Neo4j → write Fix nodes, link to CVEs          │
 └────────────────────┬────────────────────────────┘
                      ▼
 ┌─────────────────────────────────────────────────┐
 │  ORCHESTRATOR                                   │
-│  Senso /search → health score, top issues       │
-│  Senso /generate → executive summary            │
 │  Neo4j → blast radius final calculations        │
 │  Yutori Scout → create ongoing CVE monitor      │
 └────────────────────┬────────────────────────────┘
                      ▼
               Next.js Dashboard (Render)
-              Real-time via Senso + Yutori webhooks
+              Real-time via Yutori webhooks
 ```
 
 ### Full pipeline entry point
@@ -1767,14 +1297,7 @@ client = YutoriClient()
 async def run_vibecheck(github_url: str) -> dict:
     print(f"\n🔍 VIBE CHECK: {github_url}")
 
-    # 1. One-time setup
-    categories = senso_setup_taxonomy()
-    senso_setup_event_bus(
-        dashboard_url=os.environ["DASHBOARD_WEBHOOK_URL"],
-        dashboard_secret=os.environ["DASHBOARD_WEBHOOK_SECRET"]
-    )
-
-    # 2. Mapper: clone repo, build graph
+    # 1. Mapper: clone repo, build graph
     repo_files = clone_and_list_files(github_url)
     dependencies = parse_manifest(github_url)
 
@@ -1784,10 +1307,8 @@ async def run_vibecheck(github_url: str) -> dict:
         for fn in nodes.get("functions", []):
             write_function_node(fn["name"], file_path, fn["startLine"],
                                 fn["endLine"], fn["complexity"], fn["exported"])
-        senso_ingest(f"File: {file_path}", content,
-                     category_id=categories.get("Code Quality"), wait_for_indexing=False)
 
-    # 3. Security: Yutori Research on all deps (concurrent with quality)
+    # 2. Security: Yutori Research on all deps (concurrent with quality)
     print("🔐 Running Yutori Research on dependencies...")
     sec_task = client.research.create(
         query=f"Full security audit for: "
@@ -1812,52 +1333,29 @@ async def run_vibecheck(github_url: str) -> dict:
         }
     )
 
-    # 4. Quality: Yutori n1 per file (run while Research is running)
+    # 3. Quality: Yutori n1 per file (run while Research is running)
     print("🧹 Running quality analysis...")
     all_quality_issues = []
     for file_path, content in repo_files.items():
         issues = n1_quality_analysis(content, detect_language(file_path))
         all_quality_issues.extend(issues)
-        for issue in issues:
-            senso_ingest(
-                title=f"Quality: {issue['type']} in {file_path}",
-                text=f"Severity: {issue['severity']}\nLine: {issue.get('line')}\n"
-                     f"Issue: {issue['description']}\nFix: {issue['fix']}",
-                category_id=categories.get("Code Quality"),
-                wait_for_indexing=False
-            )
 
-    # 5. Wait for Research, write CVEs to graph + Senso
+    # 4. Wait for Research, write CVEs to graph
     print("⏳ Waiting for Yutori Research...")
     sec_result = research(query="", poll_interval=10)  # already running
     for pkg_data in (sec_result.get("output") or []):
         for cve in pkg_data.get("cves", []):
             write_cve(cve["id"], pkg_data["package"], pkg_data["version"],
                       cve["severity"], cve["cvss"], pkg_data.get("safe_version", "unknown"))
-            senso_ingest(
-                title=f"CVE: {cve['id']} — {pkg_data['package']}@{pkg_data['version']}",
-                text=f"Severity: {cve['severity']}\nCVSS: {cve['cvss']}\n"
-                     f"Fix version: {pkg_data.get('safe_version')}",
-                category_id=categories.get("Security Findings")
-            )
 
-    # 6. Doctor: generate fix plan from Senso knowledge base
+    # 5. Doctor: generate fix plan
     print("💊 Doctor Agent generating fix plan...")
-    fix_plan = senso_generate(
-        instructions="""Generate a complete prioritized fix plan.
-        Order: CRITICAL → HIGH → MEDIUM, then by blast radius.
-        For each fix: ID, severity, affected files, exact commands, effort estimate.""",
-        content_type="fix_plan"
-    )
+    fix_plan = n1_generate_fix_doc(all_quality_issues, "")
 
-    # 7. Orchestrator: final report + create ongoing scout
-    health = senso_ask("What is the codebase health score 0-100 and grade?")["answer"]
-    summary = senso_generate(
-        instructions="Write a 3-paragraph executive summary for non-technical stakeholders.",
-        content_type="executive_summary", save=False
-    )
+    # 6. Orchestrator: final report + create ongoing scout
+    health = n1_compute_health_score(all_quality_issues)
 
-    # 8. Create Yutori Scout for ongoing CVE monitoring
+    # 7. Create Yutori Scout for ongoing CVE monitoring
     scout_id = create_dependency_scout(
         packages=dependencies,
         webhook_url=os.environ["DASHBOARD_WEBHOOK_URL"]
@@ -1867,7 +1365,6 @@ async def run_vibecheck(github_url: str) -> dict:
     return {
         "health": health,
         "fix_plan": fix_plan,
-        "summary": summary,
         "cve_count": sum(len(p.get("cves", [])) for p in (sec_result.get("output") or [])),
         "quality_issues": len(all_quality_issues),
         "scout_id": scout_id
@@ -1876,16 +1373,13 @@ async def run_vibecheck(github_url: str) -> dict:
 
 ---
 
-## 10. Environment Variables Checklist
+## 9. Environment Variables Checklist
 
 ```bash
 # ── PRIMARY (required on day 1) ───────────────────────────────────────────────
 
 YUTORI_API_KEY=yt-...
 # Sign up: platform.yutori.com/sign-up → Billing → Settings → API Key
-
-SENSO_API_KEY=tgr_live_...
-# Email: tom@senso.ai — key arrives in "Your Senso Platform Access" email
 
 NEO4J_URI=neo4j+s://xxxx.databases.neo4j.io:7687
 NEO4J_PASSWORD=your-aura-password

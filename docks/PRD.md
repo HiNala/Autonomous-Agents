@@ -14,7 +14,7 @@ A letter-grade health score (like A+ through F) for your entire codebase
 A live, interactive map of every file, dependency, and connection in the project
 A plain-English list of every security vulnerability, bug, and bad practice found
 A prioritized, step-by-step fix plan with time estimates
-Intelligence from previous scans that gets smarter over time
+Intelligence that gets smarter over time
 
 
 
@@ -59,10 +59,10 @@ VIBE CHECK has two main halves: a Python-powered analysis engine running in the 
    │ Mapper│ │Quality│ │Pattern│ │ Secur │ │Doctr│
    └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └─┬─┘
          │        │        │        │      │
-   ┌─────┴─────┴─────┴─────┴─────┴───────┐
-   │ Neo4j  │ Fastino │ OpenAI │ Tavily │  Senso  │
-   │ Graph  │ (Speed) │(Reason)│(Search)│(Memory) │
-   └──────────────────────────────────────┘
+   ┌─────┴─────┴─────┴─────┴─────┴──────────────┐
+   │ Neo4j  │ Fastino │ Yutori │ OpenAI │ Tavily │
+   │ Graph  │ (Speed) │(Research)│(Backup)│(Search)│
+   └──────────────────────────────────────────┘
 
 
 2.2 What Happens When You Hit "Analyze"
@@ -76,15 +76,14 @@ The moment you submit a GitHub URL, an automated sequence kicks off — running 
              ├─ Pattern Agent: check architectural best practices
              └─ Security Agent: hunt for CVEs and vulnerabilities
   STEP 5  →  Generate fix documentation (DOCTOR AGENT)
-  STEP 6  →  Save everything to the knowledge base (SENSO AGENT)
-  STEP 7  →  Calculate the Health Score and reveal the dashboard
+  STEP 6  →  Calculate the Health Score and reveal the dashboard
 
 
 Throughout this entire process, the web dashboard is updating live. You can watch the graph build node by node, see findings appear as they're discovered, and watch each agent check in with its progress.
 
 
-3. The Seven Agents
-VIBE CHECK's analysis is performed by a team of seven specialized AI agents. Think of them like a medical team: each one is an expert in their area, and they work together to produce a complete picture.
+3. The Six Agents
+VIBE CHECK's analysis is performed by a team of six specialized AI agents. Think of them like a medical team: each one is an expert in their area, and they work together to produce a complete picture.
 
 3.1 Agent Overview
 
@@ -109,15 +108,12 @@ Checks every dependency against public vulnerability databases (CVEs). Traces ho
 Doctor
 The prescriber
 Takes all findings and writes specific, actionable fix instructions for each one. Produces before/after code examples. Estimates how long each fix will take.
-Senso
-The memory keeper
-Saves every finding, every fix, every repo profile into a persistent knowledge base. Queries that same knowledge base at the start of every new scan to surface relevant history.
 
 
 3.2 How Agents Work Together
 
   SEQUENTIAL (must happen in order):
-  Orchestrator → Mapper → [Quality + Pattern + Security] → Doctor → Senso
+  Orchestrator → Mapper → [Quality + Pattern + Security] → Doctor
 
   PARALLEL (run simultaneously to save time):
   Quality ───►
@@ -171,8 +167,6 @@ Vulnerability Chains
 The attack paths that connect an entry point (like an API route) through multiple hops to the actual vulnerable code.
 Fixes
 Step-by-step remediation instructions, priority order, estimated effort, before/after examples.
-Senso Content
-References to every piece of knowledge stored in the Senso memory system.
 
 
 4.2 How Things Connect: Relationships
@@ -229,7 +223,7 @@ The Health Score is the single most important visual element in the entire appli
   T+1.8s   Confidence level fades in below
   T+2.0s   Five category cards stagger in, one by one
   T+2.5s   The graph panel fades in (already populated)
-  T+3.0s   Findings, fixes, and Senso panel appear
+  T+3.0s   Findings and fixes appear
 
 
 This sequence is intentional. The score is meant to feel like a moment of revelation, not just a data readout. The animation builds anticipation and gives the number emotional weight.
@@ -257,7 +251,7 @@ The most dramatic view. All non-vulnerable nodes fade to nearly invisible. Red e
 5.4 The Dashboard Layout
 
  ┌────────────────────────────────────────────────────────────┐
- │  VIBE CHECK    |   user/repo  (completed 42s)   |  Senso ●  │
+ │  VIBE CHECK    |   user/repo  (completed 42s)             │
  ├─────────────┬────────────────────────────────────────────┤
  │   SCORE HERO   │         GRAPH PANEL (60%)             │
  │                │   [Structure] [Deps] [Vulns]   ⛶ ↺  │
@@ -272,9 +266,7 @@ The most dramatic view. All non-vulnerable nodes fade to nearly invisible. Red e
  ├─────────────┴────────────────────────────────────────────┤
  │   FIX PLAN — 15 fixes · 6.5 hours · 2 keystone fixes         │
  ├────────────────────────────────────────────────────────────┤
- │   🧠 SENSO INTELLIGENCE · 3 patterns across repos         │
- ├────────────────────────────────────────────────────────────┤
- │   Powered by:  Neo4j ●  Fastino ⚡  OpenAI  Senso  Tavily   │
+ │   Powered by:  Neo4j ●  Fastino ⚡  Yutori  OpenAI  Tavily        │
  └────────────────────────────────────────────────────────────┘
 
 
@@ -324,70 +316,13 @@ The specific change required (upgrade a package, add input validation, refactor 
 An estimated time to implement
 How many findings and attack chains this fix resolves
 Before-and-after code examples with exact file paths and line numbers
-Historical context from Senso ("Fixed in 2 previous repos — avg 25 min")
+Historical context from previous scans when available
 
 The Fix Plan header always shows the full scope: "15 fixes · 6.5 hours total · 2 keystone fixes eliminate 4 chains." This gives developers the information they need to plan a sprint.
 
 
-7. Senso: The Intelligence Layer
-Senso Context OS is the memory and intelligence system that makes VIBE CHECK more than just a scanner. While everything else in VIBE CHECK is about the current scan, Senso is about what VIBE CHECK has learned across all scans.
-
-
-
-Why Senso Changes Everything
-A traditional scanner finds the same vulnerability the same way every time. VIBE CHECK, through Senso, can say: "We've seen this before in 3 of your other repositories. The average fix took 25 minutes. Here's the exact fix that worked last time." That's not scanning — that's institutional knowledge.
-
-
-7.1 What Senso Does
-
-When
-What It Does
-Before each scan
-Searches the knowledge base for relevant history: "What do we already know about Express vulnerabilities?" Feeds this to the Doctor Agent so fix docs are informed by experience.
-After each scan
-Saves every finding, fix, and repository profile into the knowledge base as searchable, categorized content. The repo's health score, tech stack, and vulnerability patterns all become institutional memory.
-Cross-repo intelligence
-Generates insights that span multiple scans: "Missing input validation appears in 7 of 10 of your scanned repos." This turns individual scans into organizational awareness.
-Answering questions
-The Senso panel on the dashboard accepts natural language queries: "What security patterns appear across all my repos?" Senso searches its knowledge base and returns cited answers.
-
-
-7.2 The Knowledge Structure
-Senso organizes everything into a structured taxonomy of categories and topics:
-
-Category
-Category
-Category
-Security Vulnerabilities
-Code Quality
-Architecture & Patterns
-Dependency CVEs, Code Vulnerabilities, Configuration Issues, Vulnerability Chains
-Bugs, Code Smells, Dead Code, Complexity Hotspots
-Framework Best Practices, Anti-Patterns, Project Structure
-Fix Documentation
-Repository Profiles
-
-
-Dependency Upgrades, Security Patches, Refactoring Guides
-Health Scores, Tech Stack Analysis
-
-
-
-
-7.3 The Compounding Effect
-The value of Senso grows with every scan. The first scan of a new codebase gives you a baseline report. The fifth scan of a related project gives you organizational pattern recognition. Over time, VIBE CHECK becomes a strategic partner — not just a code checker.
-
-  Scan 1:  "Found 3 critical CVEs in Express dependencies."
-  Scan 2:  "Found the same CVE pattern. This affects 2 of your repos."
-  Scan 5:  "Express vulnerabilities appear in 4/5 of your Node.js repos.
-            Consider standardizing on a safe version across all projects."
- Scan 10:  "Your team consistently underestimates fix time for SQL injection issues.
-            Actual average: 45 min vs estimated 20 min."
-
-
-
-8. Technology Partners
-VIBE CHECK is built on five sponsor integrations, each filling a specific role in the analysis pipeline.
+7. Technology Partners
+VIBE CHECK is built on five technology partners, each filling a specific role in the analysis pipeline.
 
 Partner
 Role in VIBE CHECK
@@ -395,15 +330,15 @@ Role in VIBE CHECK
 The Graph Database. Every file, function, dependency, vulnerability, and relationship is stored in Neo4j's graph database. The entire visualization you see on screen is Neo4j data rendered live. Neo4j is what makes blast radius and attack chain analysis possible.
 ⚡  Fastino
 The Speed Engine. Fastino's Task-Specific Language Models (TLMs) handle the high-volume, precision jobs: classifying 47 files in 142ms, extracting CVE IDs from advisory text, identifying function signatures. Roughly 120 Fastino calls happen per scan, taking about 1.5 seconds total.
+🔬  Yutori
+The Primary Research Engine. Yutori's n1 model powers all specialist agents via an OpenAI-compatible interface. Its Browsing API does live CVE lookups on NVD and GitHub Security Advisories, while its Research API runs deep dependency intelligence across 100+ sources in parallel.
 🧠  OpenAI
-The Deep Reasoner. GPT-4o handles the complex, nuanced work: understanding what code actually does and why it's problematic, tracing attack chains through the call graph, writing human-quality fix documentation. About 15-30 calls per scan.
+The Fallback Reasoner. GPT-4o serves as a backup when Yutori n1 is unavailable, and handles structured outputs for schema-critical graph writes. About 15-30 calls per scan.
 🔍  Tavily
-The Web Researcher. Tavily searches the public internet (specifically the National Vulnerability Database, GitHub Security Advisories, and Snyk) to find known CVEs for every dependency in the repository. It then extracts detailed advisory content from those sources.
-📊  Senso
-The Memory System. Senso Context OS stores and retrieves all knowledge across scans. Every finding and fix is saved; every new scan queries what's already known. Senso is what transforms VIBE CHECK from a stateless scanner into a learning intelligence platform.
+The Web Researcher. Tavily searches the public internet (specifically the National Vulnerability Database, GitHub Security Advisories, and Snyk) for quick CVE lookups, changelog snippets, and fix version confirmations.
 
 
-8.1 During a Live Demo: What You'll See
+7.1 During a Live Demo: What You'll See
 While a scan is running, the footer of the dashboard shows each sponsor's logo. When that sponsor's API is being called, its logo lights up and pulses. This creates a real-time visual of the integration in action:
 
   0:03   Neo4j pulses     (graph connection established)
@@ -413,14 +348,13 @@ While a scan is running, the footer of the dashboard shows each sponsor's logo. 
   0:18   Fastino pulses   (extracting CVE entities from search results)
   0:20   OpenAI pulses    (chain analysis begins)
   0:30   OpenAI pulses    (Doctor Agent generating fix docs)
-  0:35   Senso pulses     (knowledge ingestion)
 
 
 
-9. Design Philosophy
+8. Design Philosophy
 Every visual and interaction decision in VIBE CHECK was made against a specific principle. The design was guided by synthesizing the mandates of eleven legendary designers.
 
-9.1 The Five Non-Negotiable Mandates
+8.1 The Five Non-Negotiable Mandates
 
 Mandate
 Why It Matters
@@ -432,11 +366,11 @@ Fix plan is co-equal with the score
 The Fix Plan is never buried. It's always visible without scrolling. Developers always know what to fix next.
 Three colors, three views, three seconds
 Only green, amber, and red appear as saturated colors. Everything else is grayscale. The eye is automatically drawn to problems. First meaningful content appears within 3 seconds.
-Senso compounds intelligence
-The second scan of a related project feels different from the first. VIBE CHECK learns. This is the long-term value proposition.
+Knowledge compounds over time
+The system retains context from previous scans. The second scan of a related project feels different from the first.
 
 
-9.2 The Visual Aesthetic
+8.2 The Visual Aesthetic
 VIBE CHECK's visual style is what the design team calls "Surgical Intelligence" — the feeling of medical imaging meets Bloomberg terminal meets deep space observatory. Precise, revealing, clinical.
 
 Dark near-black background with a barely visible grid suggesting measurement precision
@@ -452,9 +386,9 @@ VIBE CHECK deliberately avoids the generic "developer SaaS" aesthetic: no purple
 
 
 
-10. Technical Stack Summary
+9. Technical Stack Summary
 
-10.1 Frontend
+9.1 Frontend
 Technology
 Purpose
 Framework
@@ -475,7 +409,7 @@ Icons
 Lucide React
 
 
-10.2 Backend
+9.2 Backend
 Technology
 Purpose
 Language & Framework
@@ -494,15 +428,13 @@ AI (Speed)
 Fastino GLiNER-2 via REST API + gliner2 Python SDK
 AI (Reasoning)
 OpenAI GPT-4o via official async Python SDK
-Knowledge Base
-Senso Context OS via httpx async HTTP client
 Repo Cloning
 Git subprocess — clones repositories to temporary local storage
 Code Parsing
 Tree-sitter + Python ast module — extracts functions and structure from source files
 
 
-10.3 Communication: How Frontend and Backend Talk
+9.3 Communication: How Frontend and Backend Talk
 
   REST API calls:  Frontend → Backend
   POST /analyze          Start a new analysis
@@ -510,19 +442,16 @@ Tree-sitter + Python ast module — extracts functions and structure from source
   GET  /analysis/:id/findings   Get all findings
   GET  /analysis/:id/fixes      Get the fix plan
   GET  /analysis/:id/graph      Get graph data for a specific view
-  POST /analysis/:id/senso/search  Query the Senso knowledge base
-
   WebSocket:   Backend → Frontend (real-time streaming)
   Agent status updates ("Mapper is 80% complete")
   Graph nodes as they're discovered
   Findings as they're found
   Agent completion events with finding counts
-  Senso intelligence insights
   Final health score and completion signal
 
 
 
-11. What Makes VIBE CHECK Different
+10. What Makes VIBE CHECK Different
 
 Differentiator
 Why It Matters
@@ -535,7 +464,7 @@ Instead of treating all fixes equally, VIBE CHECK identifies which single fixes 
 Plain Language First
 Every technical finding has a plain-language explanation that appears before the technical details. A junior developer and a security engineer can both use VIBE CHECK effectively.
 Compounding Intelligence
-Senso turns every scan into a learning event. The more you use VIBE CHECK, the smarter it gets about your specific codebase patterns and your team's fix habits.
+Every scan is a learning event. The more you use VIBE CHECK, the smarter it gets about your specific codebase patterns and your team's fix habits.
 Real-Time Theater
 The analysis isn't hidden behind a loading spinner. You watch the graph build, see findings appear as they're discovered, observe agents checking in with progress. The process is transparent and compelling.
 

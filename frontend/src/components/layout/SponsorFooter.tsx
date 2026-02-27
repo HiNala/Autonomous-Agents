@@ -8,11 +8,11 @@ const SPONSORS: Array<{
   agent: string;
   tagline: string;
 }> = [
-  { name: "Yutori",  color: "#EC4899", agent: "security",  tagline: "Primary reasoning engine" },
+  { name: "Fastino", color: "#F59E0B", agent: "mapper",    tagline: "Fast entity classification & scoring" },
+  { name: "Yutori",  color: "#EC4899", agent: "security",  tagline: "Deep web research & reasoning" },
   { name: "Neo4j",   color: "#018BFF", agent: "mapper",    tagline: "Knowledge graph engine" },
-  { name: "Tavily",  color: "#3B82F6", agent: "security",  tagline: "Fast supplemental web search" },
-  { name: "OpenAI",  color: "#22C55E", agent: "doctor",    tagline: "Backup reasoning & structured outputs" },
-  { name: "Fastino", color: "#F59E0B", agent: "mapper",    tagline: "Fast entity pre-extraction" },
+  { name: "Tavily",  color: "#3B82F6", agent: "security",  tagline: "Fast CVE & vulnerability search" },
+  { name: "OpenAI",  color: "#22C55E", agent: "quality",   tagline: "Reasoning fallback engine" },
 ];
 
 export function SponsorFooter() {

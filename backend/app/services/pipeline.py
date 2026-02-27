@@ -3,11 +3,11 @@ Analysis pipeline — orchestrates the full repo-analysis flow.
 
 Flow:
   1. Clone repository (git)
-  2. Metadata ingestion (file walk, dependency detection)
-  3. Fastino: classify files, extract entities from code
+  2. Metadata ingestion (file walk, dependency detection, function/endpoint counting)
+  3. OpenAI: classify files, extract code-quality findings
   4. Tavily: search for CVEs in detected dependencies
   5. Yutori: deep web research on vulnerabilities
-  6. OpenAI (backup): reasoning on findings, generate fixes
+  6. OpenAI: deep reasoning on findings, generate fixes
   7. Neo4j: build knowledge graph
 
 Every sponsor-tool call is logged to the tool_calls table via the
@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -29,10 +30,10 @@ from sqlalchemy import update
 
 from app.database import async_session
 from app.models import Analysis, AnalysisStatus
-from app.clients.fastino import FastinoClient
 from app.clients.tavily_client import TavilyClient
 from app.clients.yutori import YutoriClient
 from app.clients.openai_client import OpenAIClient
+from app.clients.fastino import FastinoClient
 from app.clients.tool_logger import log_tool_call
 from app.services import neo4j as neo4j_service
 from app.routers.ws import manager as ws_manager
@@ -61,52 +62,69 @@ async def run_pipeline(analysis_id: str) -> None:
         await _ws(analysis_id, "mapper", "running", 0.1, "Scanning files...")
         metadata = await _ingest_metadata(analysis_id, clone_dir)
 
-        # Fastino: classify files
-        if fastino.available:
-            await _ws(analysis_id, "mapper", "running", 0.3, "Classifying files with Fastino...")
-            metadata = await _fastino_classify_files(fastino, analysis_id, metadata)
+        # Classify files: Fastino primary, OpenAI fallback
+        await _ws(analysis_id, "mapper", "running", 0.3, "Classifying files...")
+        metadata = await _classify_files(fastino, openai, analysis_id, metadata)
 
         await _save_metadata(analysis_id, metadata)
         await _ws(analysis_id, "mapper", "complete", 1.0,
-                  f"Mapped {metadata['stats']['total_files']} files")
+                  f"Mapped {metadata['stats']['total_files']} files, "
+                  f"{metadata['stats']['total_functions']} functions, "
+                  f"{metadata['stats']['total_dependencies']} deps")
+
+        # Broadcast file nodes as they're mapped
+        await _ws_activity(analysis_id, "mapper", f"Scanned {metadata['stats']['total_files']} files, {metadata['stats']['total_lines']} lines", "openai")
 
         # ── 3. TAVILY — CVE Search ──────────────────────────────
         await _update_status(analysis_id, AnalysisStatus.ANALYZING)
         await _ws(analysis_id, "security", "running", 0.1, "Searching for CVEs...")
+        await _ws_activity(analysis_id, "security", "Querying CVE databases via Tavily...", "tavily")
         cve_results = await _tavily_cve_search(tavily, analysis_id, metadata)
 
-        # Tavily extract + Fastino CVE entity extraction (advisory content → findings)
-        cve_findings: list[dict] = []
-        if tavily.available and fastino.available and cve_results:
-            cve_findings = await _tavily_extract_and_fastino_cve(tavily, fastino, analysis_id, cve_results)
+        # ── 4. Code Quality Analysis (Fastino primary, OpenAI fallback)
+        quality_findings: list[dict] = []
+        await _ws(analysis_id, "quality", "running", 0.2, "Analyzing code quality...")
+        await _ws_activity(analysis_id, "quality", "Analyzing source files for code quality issues...", "fastino")
+        quality_findings = await _code_quality_analysis(fastino, openai, analysis_id, clone_dir, metadata)
+        for f in quality_findings:
+            await _ws_finding(analysis_id, f)
+        if quality_findings:
+            await _ws_activity(analysis_id, "quality", f"Found {len(quality_findings)} code quality issues", "openai")
 
-        # ── 4. FASTINO — Deep Analysis ──────────────────────────
-        fastino_findings: list[dict] = []
-        if fastino.available:
-            await _ws(analysis_id, "quality", "running", 0.2, "Analyzing code quality with Fastino...")
-            fastino_findings = await _fastino_analyze(fastino, analysis_id, clone_dir, metadata)
+        # ── 5. Deep Research (Yutori primary, OpenAI fallback) ────
+        yutori_results: dict = {}
+        if cve_results:
+            await _ws(analysis_id, "security", "running", 0.5, "Deep research on vulnerabilities...")
+            await _ws_activity(analysis_id, "security", "Researching vulnerabilities...", "yutori")
+            yutori_results = await _deep_research(yutori, openai, analysis_id, metadata, cve_results)
 
-        # ── 5. YUTORI — Web Research ────────────────────────────
-        yutori_findings: list[dict] = []
-        if yutori.available and cve_results:
-            await _ws(analysis_id, "security", "running", 0.5, "Deep web research with Yutori...")
-            yutori_findings = await _yutori_research(yutori, analysis_id, metadata, cve_results)
-
-        # ── 6. OPENAI — Backup Reasoning ────────────────────────
-        openai_findings: list[dict] = []
+        # ── 6. Deep Pattern Analysis (OpenAI) ────────────────────
+        deep_findings: list[dict] = []
         if openai.available:
-            await _ws(analysis_id, "pattern", "running", 0.3, "Deep analysis with OpenAI...")
-            openai_findings = await _openai_analyze(
-                openai, analysis_id, clone_dir, metadata, cve_results, fastino_findings
+            await _ws(analysis_id, "pattern", "running", 0.3, "Deep pattern analysis...")
+            await _ws_activity(analysis_id, "pattern", "Running deep pattern and architecture analysis...", "openai")
+            deep_findings = await _openai_analyze(
+                openai, analysis_id, clone_dir, metadata, cve_results, quality_findings
             )
+            for f in deep_findings:
+                await _ws_finding(analysis_id, f)
+            if deep_findings:
+                await _ws_activity(analysis_id, "pattern", f"Found {len(deep_findings)} pattern/security issues", "openai")
 
         # ── Aggregate Findings ──────────────────────────────────
-        all_findings = _merge_findings(cve_findings, fastino_findings, openai_findings, yutori_findings)
+        all_findings = _merge_findings(cve_results, quality_findings, deep_findings, yutori_results)
         health_score = _compute_health_score(all_findings, metadata["stats"])
 
         # ── 7. NEO4J — Build Graph ──────────────────────────────
         await _ws(analysis_id, "orchestrator", "running", 0.85, "Building knowledge graph...")
+        await _ws_activity(analysis_id, "mapper", "Constructing Neo4j knowledge graph...", "neo4j")
         graph = await _build_neo4j_graph(analysis_id, metadata, all_findings)
+        # Stream graph nodes/edges to frontend
+        for n in graph.get("nodes", [])[:50]:
+            await _ws_graph_node(analysis_id, n)
+        for e in graph.get("edges", [])[:50]:
+            await _ws_graph_edge(analysis_id, e)
+        await _ws_activity(analysis_id, "mapper", f"Graph built: {len(graph.get('nodes', []))} nodes, {len(graph.get('edges', []))} edges", "neo4j")
 
         # ── COMPLETE ────────────────────────────────────────────
         duration = round(time.time() - t_start)
@@ -294,13 +312,42 @@ async def _ingest_metadata(analysis_id: str, clone_dir: str) -> dict[str, Any]:
         "buildSystem": "next" if any(d["name"] == "next" for d in dependencies) else "unknown",
     }
 
+    # Count functions and endpoints with regex
+    total_functions = 0
+    total_endpoints = 0
+    fn_patterns = [
+        re.compile(r"^\s*(?:async\s+)?def\s+\w+"),                   # Python
+        re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+\w+"), # JS/TS
+        re.compile(r"^\s*(?:export\s+)?(?:const|let)\s+\w+\s*=\s*(?:async\s+)?\("),  # Arrow fns
+    ]
+    endpoint_patterns = [
+        re.compile(r"@(?:app|router)\.\s*(?:get|post|put|delete|patch)\s*\("),  # FastAPI/Flask
+        re.compile(r"(?:app|router)\.(?:get|post|put|delete|patch)\s*\("),       # Express
+    ]
+    for f in files:
+        if f["language"]:
+            fpath = os.path.join(clone_dir, f["path"])
+            try:
+                with open(fpath, "r", errors="ignore") as _fh:
+                    for line in _fh:
+                        for pat in fn_patterns:
+                            if pat.search(line):
+                                total_functions += 1
+                                break
+                        for pat in endpoint_patterns:
+                            if pat.search(line):
+                                total_endpoints += 1
+                                break
+            except Exception:
+                pass
+
     stats = {
         "total_files": len(files),
         "total_lines": total_lines,
         "total_dependencies": sum(1 for d in dependencies if not d["is_dev"]),
         "total_dev_dependencies": sum(1 for d in dependencies if d["is_dev"]),
-        "total_functions": 0,
-        "total_endpoints": 0,
+        "total_functions": total_functions,
+        "total_endpoints": total_endpoints,
     }
 
     return {
@@ -332,30 +379,109 @@ def _detect_frameworks(deps: list[dict], files: list[dict]) -> list[str]:
 
 
 # ────────────────────────────────────────────────────────────────
-# FASTINO — File Classification
+# FILE CLASSIFICATION — Fastino primary, OpenAI fallback
 # ────────────────────────────────────────────────────────────────
 
-async def _fastino_classify_files(
-    fastino: FastinoClient, analysis_id: str, metadata: dict
+async def _classify_files(
+    fastino: FastinoClient, openai_client: OpenAIClient,
+    analysis_id: str, metadata: dict,
 ) -> dict:
-    """Classify files into source/test/config/docs categories."""
-    categories = ["source", "test", "config", "docs", "assets", "build", "ci-cd"]
-    t0 = time.perf_counter()
+    """Classify files — tries Fastino per-file, falls back to OpenAI batch."""
     files_to_classify = metadata["files"][:100]
-    for f in files_to_classify:
+    if not files_to_classify:
+        return metadata
+
+    categories = ["source", "test", "config", "docs", "assets", "build", "ci-cd"]
+    classified = False
+
+    # ── Try Fastino first (per-file classification) ──
+    if fastino.available:
         try:
-            result = await fastino.classify_text(
-                analysis_id=analysis_id,
-                text=f"{f['path']} — {f['extension']} — {f['language']}",
-                categories=categories,
-                step_name=f"classify_file_{f['name'][:30]}",
-            )
-            f["category"] = result.get("label", "unknown")
+            for f in files_to_classify:
+                result = await fastino.classify_text(
+                    analysis_id=analysis_id,
+                    text=f"{f['path']} — {f['extension']} — {f['language']}",
+                    categories=categories,
+                    step_name=f"classify_{f['name'][:30]}",
+                )
+                f["category"] = result.get("label", "unknown")
+            classified = True
+            logger.info("File classification completed via Fastino")
         except Exception:
-            f["category"] = "unknown"
-    elapsed_ms = round((time.perf_counter() - t0) * 1000)
-    await _ws(analysis_id, "mapper", "running", -1, f"⚡ Fastino: {len(files_to_classify)} files classified in {elapsed_ms}ms")
+            logger.warning("Fastino classification failed, falling back to OpenAI")
+
+    # ── OpenAI fallback (batch classification) ──
+    if not classified and openai_client.available:
+        file_list = "\n".join(
+            f"- {f['path']} ({f['extension']}, {f['language'] or 'unknown'})"
+            for f in files_to_classify
+        )
+        try:
+            result = await openai_client.chat(
+                analysis_id=analysis_id,
+                system_prompt=(
+                    "Classify each file into exactly one category: source, test, config, "
+                    "docs, assets, build, ci-cd. Return JSON with a "
+                    "'classifications' array of {path, category} objects."
+                ),
+                user_prompt=f"Classify these files:\n{file_list}",
+                step_name="classify_files_fallback",
+                json_schema={
+                    "name": "file_classifications",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "classifications": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "path": {"type": "string"},
+                                        "category": {"type": "string"},
+                                    },
+                                    "required": ["path", "category"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["classifications"],
+                        "additionalProperties": False,
+                    },
+                },
+            )
+            cat_map = {c["path"]: c["category"] for c in result.get("classifications", [])}
+            for f in files_to_classify:
+                f["category"] = cat_map.get(f["path"], "unknown")
+            classified = True
+            logger.info("File classification completed via OpenAI (fallback)")
+        except Exception:
+            logger.warning("OpenAI classification also failed, using heuristic")
+
+    # ── Heuristic last resort ──
+    if not classified:
+        for f in files_to_classify:
+            f["category"] = _heuristic_classify(f["path"], f["extension"])
+
     return metadata
+
+
+def _heuristic_classify(path: str, ext: str) -> str:
+    """Fast regex fallback when LLM classification fails."""
+    p = path.lower()
+    if any(x in p for x in ("test", "spec", "__test__", ".test.")):
+        return "test"
+    if any(x in p for x in (".config", "tsconfig", "eslint", ".env", "docker", "compose", "makefile")):
+        return "config"
+    if ext in (".md", ".rst", ".txt", ".adoc"):
+        return "docs"
+    if ext in (".png", ".jpg", ".svg", ".ico", ".gif", ".woff", ".ttf"):
+        return "assets"
+    if any(x in p for x in (".github/workflows", "ci", "jenkinsfile")):
+        return "ci-cd"
+    if ext in (".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".rb", ".php"):
+        return "source"
+    return "unknown"
 
 
 # ────────────────────────────────────────────────────────────────
@@ -486,59 +612,233 @@ async def _tavily_extract_and_fastino_cve(
 
 
 # ────────────────────────────────────────────────────────────────
-# 4. FASTINO — Deep Analysis
+# 4. Code Quality — Fastino primary, OpenAI fallback
 # ────────────────────────────────────────────────────────────────
 
-async def _fastino_analyze(
-    fastino: FastinoClient, analysis_id: str, clone_dir: str, metadata: dict
+async def _code_quality_analysis(
+    fastino: FastinoClient, openai_client: OpenAIClient,
+    analysis_id: str, clone_dir: str, metadata: dict,
 ) -> list[dict]:
-    """Use Fastino to extract entities and classify code quality."""
-    findings: list[dict] = []
+    """Try Fastino for per-file quality, fall back to OpenAI batch."""
     source_files = [f for f in metadata["files"] if f.get("category") == "source"]
+    if not source_files:
+        return []
 
+    # ── Try Fastino first ──
+    if fastino.available:
+        try:
+            findings = await _fastino_code_quality(fastino, analysis_id, clone_dir, source_files)
+            if findings is not None:
+                logger.info("Code quality analysis completed via Fastino (%d findings)", len(findings))
+                return findings
+        except Exception:
+            logger.warning("Fastino code quality failed, falling back to OpenAI")
+
+    # ── OpenAI fallback ──
+    return await _openai_code_quality(openai_client, analysis_id, clone_dir, source_files)
+
+
+async def _fastino_code_quality(
+    fastino: FastinoClient, analysis_id: str, clone_dir: str, source_files: list[dict],
+) -> list[dict]:
+    """Per-file classification with Fastino."""
+    findings: list[dict] = []
     for f in source_files[:30]:
         fpath = os.path.join(clone_dir, f["path"])
         try:
+            with open(fpath, "r", errors="ignore") as _fh:
+                content = _fh.read()[:3000]
+        except Exception:
+            continue
+        result = await fastino.classify_text(
+            analysis_id=analysis_id,
+            text=content,
+            categories=["clean", "unhandled_error", "type_mismatch", "dead_code",
+                         "god_function", "magic_number", "deep_nesting", "duplicated_logic"],
+            step_name=f"quality_{f['name'][:30]}",
+        )
+        label = result.get("label", "clean")
+        if label != "clean":
+            findings.append({
+                "id": f"fnd_{uuid.uuid4().hex[:6]}",
+                "type": "code_smell",
+                "severity": "warning",
+                "agent": "quality",
+                "title": f"{label.replace('_', ' ').title()} in {f['name']}",
+                "description": f"Detected {label} pattern in {f['path']}",
+                "plain_description": f"Code quality issue: {label}",
+                "location": {"files": [f["path"]], "primary_file": f["path"], "start_line": 1, "end_line": f["lines"]},
+                "blast_radius": {"files_affected": 1, "functions_affected": 0, "endpoints_affected": 0},
+                "chain_ids": [],
+                "confidence": result.get("score", 0.5),
+            })
+    return findings
+
+
+async def _openai_code_quality(
+    openai_client: OpenAIClient, analysis_id: str, clone_dir: str, source_files: list[dict],
+) -> list[dict]:
+    """Use OpenAI to analyze code quality across source files (fallback)."""
+    findings: list[dict] = []
+    if not source_files or not openai_client.available:
+        return findings
+
+    # Gather code snippets for batch analysis
+    code_samples: list[str] = []
+    sample_files: list[dict] = []
+    for f in source_files[:20]:
+        fpath = os.path.join(clone_dir, f["path"])
+        try:
             with open(fpath, "r", errors="ignore") as _f:
-                content = _f.read()[:3000]
+                content = _f.read()[:2000]
+            code_samples.append(f"### {f['path']} ({f['lines']} lines)\n```\n{content}\n```")
+            sample_files.append(f)
         except Exception:
             continue
 
-        try:
-            result = await fastino.classify_text(
-                analysis_id=analysis_id,
-                text=content,
-                categories=[
-                    "clean", "unhandled_error", "type_mismatch", "dead_code",
-                    "god_function", "magic_number", "deep_nesting", "duplicated_logic",
-                ],
-                step_name=f"quality_{f['name'][:30]}",
-            )
-            label = result.get("label", "clean")
-            if label != "clean":
-                findings.append({
-                    "id": f"fnd_{uuid.uuid4().hex[:6]}",
-                    "type": "code_smell",
-                    "severity": "warning",
-                    "agent": "quality",
-                    "provider": "fastino",
-                    "title": f"{label.replace('_', ' ').title()} in {f['name']}",
-                    "description": f"Fastino detected {label} pattern in {f['path']}",
-                    "plain_description": f"Code quality issue: {label}",
-                    "location": {"files": [f["path"]], "primary_file": f["path"], "start_line": 1, "end_line": f["lines"]},
-                    "blast_radius": {"files_affected": 1, "functions_affected": 0, "endpoints_affected": 0},
-                    "chain_ids": [],
-                    "confidence": result.get("score", 0.5),
-                })
-        except Exception:
-            pass
+    if not code_samples:
+        return findings
+
+    code_block = "\n\n".join(code_samples[:15])[:12000]
+
+    try:
+        result = await openai_client.chat(
+            analysis_id=analysis_id,
+            system_prompt=(
+                "You are a senior code quality analyst. Review the code files and identify "
+                "real issues: unhandled errors, security problems, type mismatches, dead code, "
+                "god functions, deep nesting, or duplicated logic. Only report genuine problems "
+                "with high confidence. Return structured JSON."
+            ),
+            user_prompt=(
+                f"Analyze these {len(code_samples)} source files for code quality issues:\n\n"
+                f"{code_block}\n\n"
+                "Return findings with: id, type (code_smell/security/bug), "
+                "severity (critical/warning/info), title, description, file_path, confidence (0-1)."
+            ),
+            step_name="code_quality_analysis",
+            json_schema={
+                "name": "quality_findings",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "findings": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "type": {"type": "string"},
+                                    "severity": {"type": "string"},
+                                    "title": {"type": "string"},
+                                    "description": {"type": "string"},
+                                    "file_path": {"type": "string"},
+                                    "confidence": {"type": "number"},
+                                },
+                                "required": ["id", "type", "severity", "title", "description", "file_path", "confidence"],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["findings"],
+                    "additionalProperties": False,
+                },
+            },
+        )
+        for f in result.get("findings", []):
+            findings.append({
+                "id": f.get("id", f"fnd_{uuid.uuid4().hex[:6]}"),
+                "type": f.get("type", "code_smell"),
+                "severity": f.get("severity", "warning"),
+                "agent": "quality",
+                "title": f.get("title", ""),
+                "description": f.get("description", ""),
+                "plain_description": f.get("description", "")[:200],
+                "location": {
+                    "files": [f.get("file_path", "")],
+                    "primary_file": f.get("file_path", ""),
+                    "start_line": 1,
+                    "end_line": 0,
+                },
+                "blast_radius": {"files_affected": 1, "functions_affected": 0, "endpoints_affected": 0},
+                "chain_ids": [],
+                "confidence": f.get("confidence", 0.7),
+            })
+    except Exception:
+        logger.warning("OpenAI code quality analysis failed")
 
     return findings
 
 
 # ────────────────────────────────────────────────────────────────
-# 5. YUTORI — Web Research
+# 5. Deep Research — Yutori primary, OpenAI fallback
 # ────────────────────────────────────────────────────────────────
+
+async def _deep_research(
+    yutori: YutoriClient, openai_client: OpenAIClient,
+    analysis_id: str, metadata: dict, cve_results: list[dict],
+) -> dict:
+    """Try Yutori for web research, fall back to OpenAI reasoning."""
+    if yutori.available:
+        try:
+            result = await _yutori_research(yutori, analysis_id, metadata, cve_results)
+            if result:
+                logger.info("Deep research completed via Yutori")
+                return result
+        except Exception:
+            logger.warning("Yutori research failed, falling back to OpenAI")
+
+    # OpenAI fallback — use reasoning instead of web research
+    if openai_client.available:
+        try:
+            stack = metadata.get("detected_stack", {})
+            cve_summary = "; ".join(r.get("answer", "")[:200] for r in cve_results if r.get("answer"))[:1000]
+            result = await openai_client.chat(
+                analysis_id=analysis_id,
+                system_prompt=(
+                    "You are a security researcher. Analyze the vulnerability data and "
+                    "provide detailed security assessments. Return a JSON object with a "
+                    "'vulnerabilities' array of {title, severity, summary} objects."
+                ),
+                user_prompt=(
+                    f"Stack: {json.dumps(stack)}\n"
+                    f"CVE intelligence: {cve_summary}\n\n"
+                    "Provide security assessment and remediation guidance."
+                ),
+                step_name="deep_research_fallback",
+                json_schema={
+                    "name": "security_research",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "vulnerabilities": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {"type": "string"},
+                                        "severity": {"type": "string"},
+                                        "summary": {"type": "string"},
+                                    },
+                                    "required": ["title", "severity", "summary"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["vulnerabilities"],
+                        "additionalProperties": False,
+                    },
+                },
+            )
+            logger.info("Deep research completed via OpenAI (fallback)")
+            return result
+        except Exception:
+            logger.warning("OpenAI research fallback also failed")
+
+    return {}
+
 
 async def _yutori_research(
     yutori: YutoriClient,
@@ -614,7 +914,7 @@ async def _yutori_research(
 
 
 # ────────────────────────────────────────────────────────────────
-# 6. OPENAI — Backup Reasoning
+# 6. OPENAI — Deep Pattern Analysis
 # ────────────────────────────────────────────────────────────────
 
 async def _openai_analyze(
@@ -623,7 +923,7 @@ async def _openai_analyze(
     clone_dir: str,
     metadata: dict,
     cve_results: list[dict],
-    fastino_findings: list[dict],
+    quality_findings: list[dict],
 ) -> list[dict]:
     """Use OpenAI for deep reasoning on the codebase."""
     stack = metadata.get("detected_stack", {})
@@ -635,7 +935,7 @@ async def _openai_analyze(
         f"Stack: {json.dumps(stack)}\n"
         f"Dependencies: {len(metadata.get('dependencies', []))}\n"
         f"CVE search results: {len(cve_results)} batches\n"
-        f"Fastino findings: {len(fastino_findings)} issues\n"
+        f"Quality findings so far: {len(quality_findings)} issues\n"
     )
 
     cve_context = "\n".join(
@@ -943,6 +1243,42 @@ async def _ws(analysis_id: str, agent: str, status: str, progress: float, messag
         await ws_manager.broadcast(analysis_id, {
             "type": "status", "agent": agent,
             "status": status, "progress": progress, "message": message,
+        })
+    except Exception:
+        pass
+
+
+async def _ws_finding(analysis_id: str, finding: dict):
+    """Broadcast a single finding as it's discovered."""
+    try:
+        await ws_manager.broadcast(analysis_id, {"type": "finding", "finding": finding})
+    except Exception:
+        pass
+
+
+async def _ws_graph_node(analysis_id: str, node: dict):
+    try:
+        await ws_manager.broadcast(analysis_id, {"type": "graph_node", "node": node})
+    except Exception:
+        pass
+
+
+async def _ws_graph_edge(analysis_id: str, edge: dict):
+    try:
+        await ws_manager.broadcast(analysis_id, {"type": "graph_edge", "edge": edge})
+    except Exception:
+        pass
+
+
+async def _ws_activity(analysis_id: str, agent: str, message: str, provider: str = ""):
+    """Broadcast an agent activity message for the live feed."""
+    try:
+        await ws_manager.broadcast(analysis_id, {
+            "type": "tool_activity",
+            "agent": agent,
+            "message": message,
+            "provider": provider,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
     except Exception:
         pass

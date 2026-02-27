@@ -21,7 +21,6 @@
    - 5.7 FindingsPanel (The Evidence)
    - 5.8 FindingDetail (The Deep Dive)
    - 5.9 FixPlan (The Call to Action)
-   - 5.10 SensoIntelligencePanel (The Brain)
 6. Animation & Motion Choreography
 7. Responsive & Accessibility
 8. Data Flow & State Management
@@ -43,14 +42,14 @@ This frontend is not a dashboard. It is an **instrument for understanding code**
 | 1 | **Health Score is the hero** | Dieter Rams, Steve Jobs | Largest typographic element on screen. Emotional. Animated reveal. Everything radiates outward from it. |
 | 2 | **Graph builds progressively** | Alan Kay, Steve Jobs | Never show a completed graph — let it assemble while they watch. Each node appears with intent. The graph IS the medium. |
 | 3 | **Fix Plan is the call to action** | Jef Raskin, Don Norman | Co-equal with the score. User always knows what to fix next. Not a footnote — a primary panel. |
-| 4 | **Senso creates compound intelligence** | Tony Fadell, Don Norman | First scan feels like a report. Second scan reveals intelligence. "Based on your previous scan..." is the model shift. |
+| 4 | **Intelligence compounds over time** | Tony Fadell, Don Norman | First scan feels like a report. Second scan reveals deeper insight. The system learns from every analysis. |
 | 5 | **Three colors, three views, three seconds** | Jonathan Ive, Dieter Rams | Restraint everywhere. Green/amber/red. Structure/dependencies/vulnerabilities. First meaningful content in 3s. |
 
 ### Expert Design Decisions Embedded in This PRD
 
 **Alan Kay:** The graph visualization creates new understanding — showing how isolated issues connect into systemic risk is a genuinely new way of seeing code. The graph is not a widget, it is the medium.
 
-**Don Norman:** Progressive disclosure manages three competing mental models: report → investigation tool → intelligence system. First interaction feels familiar (score), exploration reveals depth (graph), Senso reveals the system learns.
+**Don Norman:** Progressive disclosure manages three competing mental models: report → investigation tool → intelligence system. First interaction feels familiar (score), exploration reveals depth (graph), repeated use reveals the system learns.
 
 **Steve Jobs:** Experience breaks at three points: (1) waiting without visible progress — solved by streaming agents and progressive graph building; (2) graph looking like a hairball — solved by starting with file structure, complexifying on demand; (3) generic fixes — solved by referencing exact files, lines, functions from THIS repo.
 
@@ -140,7 +139,6 @@ Three semantic colors. Everything else is grayscale.
 --agent-pattern: #F97316;        /* Orange */
 --agent-security: #EF4444;       /* Red */
 --agent-doctor: #22C55E;         /* Green */
---agent-senso: #3B82F6;          /* Blue */
 ```
 
 **Rationale (Rams):** Dark mode is the only mode. Code is read on dark backgrounds. The three severity colors are the only saturated elements — they command attention by contrast. Everything else recedes.
@@ -247,7 +245,6 @@ Three semantic colors. Everything else is grayscale.
                 <FindingsPanel />
                   <FindingDetail />             /* slide-over or modal */
                 <FixPlan />
-                <SensoIntelligencePanel />
               </DashboardGrid>
             </AnalysisDashboard>
           </main>
@@ -269,7 +266,7 @@ The application has exactly four states. The transitions between them are the co
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  VIBE CHECK                          Senso: ● Online │
+│  VIBE CHECK                                         │
 │                                                      │
 │                                                      │
 │                                                      │
@@ -285,8 +282,7 @@ The application has exactly four states. The transitions between them are the co
 │         graph. Intelligence that compounds."         │
 │                                                      │
 │  ─────────────────────────────────────────────────── │
-│  Powered by: Neo4j · Fastino · OpenAI · Senso ·     │
-│              Tavily                                   │
+│  Powered by: Neo4j · Fastino · Yutori · OpenAI · Tavily  │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -304,8 +300,7 @@ The application has exactly four states. The transitions between them are the co
 │  │  ○ Quality        Pending                     │   │
 │  │  ○ Pattern        Pending                     │   │
 │  │  ○ Security       Pending                     │   │
-│  │  ○ Doctor         Pending                     │   │
-│  │  ○ Senso          Pending                     │   │
+│  │  │  ○ Doctor         Pending                     │   │
 │  │                                               │   │
 │  │  ⚡ Fastino: 47 files classified in 142ms     │   │
 │  └───────────────────────────────────────────────┘   │
@@ -356,13 +351,6 @@ The application has exactly four states. The transitions between them are the co
 │  │  ...                                                         │    │
 │  │  Total: 15 fixes · 6.5 hours · 2 keystone fixes             │    │
 │  └──────────────────────────────────────────────────────────────┘    │
-│                                                                      │
-│  ┌─ SENSO INTELLIGENCE ────────────────────────────────────────┐    │
-│  │  💡 3 cross-repo patterns  · 2 historical fixes applied      │    │
-│  │  ┌──────────────────────────────────────────────────────┐   │    │
-│  │  │ Ask: "What patterns appear across my repos?"     [→] │   │    │
-│  │  └──────────────────────────────────────────────────────┘   │    │
-│  └──────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -389,7 +377,7 @@ Minimal: error message explaining what went wrong (agent that failed, network is
 - Center: Repo name + status badge (when active analysis)
 
 **Footer contents:**
-- "Powered by" + sponsor logos in grayscale (Neo4j, Fastino, OpenAI, Tavily)
+- "Powered by" + sponsor logos in grayscale (Neo4j, Fastino, Yutori, OpenAI, Tavily)
 - Logos colorize on hover
 - During active scan, footer shows which sponsor API is currently active with a subtle pulse
 
@@ -397,7 +385,7 @@ Minimal: error message explaining what went wrong (agent that failed, network is
 
 The footer isn't just attribution — it's a live integration indicator. During scanning:
 ```
-Powered by:  Neo4j ●  Fastino ⚡  OpenAI ○  Tavily ○
+Powered by:  Neo4j ●  Fastino ⚡  Yutori ○  OpenAI ○  Tavily ○
                       ↑ currently active, pulsing
 ```
 
@@ -456,7 +444,7 @@ interface AnalysisInputProps {
 
 **Agent Status List:**
 
-Each of the 7 agents gets a row:
+Each of the 6 agents gets a row:
 
 ```
 [icon] [name]       [status]              [detail]           [provider badge]
@@ -475,8 +463,6 @@ When an agent is running, a small badge shows which sponsor API is active:
 - `⚡ Fastino` — yellow badge, for classification/extraction tasks
 - `🧠 OpenAI` — green badge, for deep reasoning tasks
 - `🔍 Tavily` — blue badge, for web search tasks
-- `💾 Senso` — purple badge, for knowledge base operations
-
 This makes sponsor usage visceral and visible during the demo.
 
 **Fastino Speed Callout:**
@@ -730,7 +716,7 @@ FINDINGS (39)    Filter: [All ▾]  [All Agents ▾]
 **Implements mandate:** "Two descriptions: technical + plain language" (van Rossum)
 
 ```typescript
-// Consumes: Finding + Fix + VulnerabilityChain + SensoSearchResult
+// Consumes: Finding + Fix + VulnerabilityChain
 // Props from contracts: FindingDetailProps
 ```
 
@@ -1128,11 +1114,9 @@ The cached replay uses this timing (matching the 3-minute demo script):
 0:12 - Mapper complete (Fastino speed toast: "47 files in 142ms")
 0:15 - Quality + Pattern + Security agents start in parallel
 0:20 - First critical finding appears (red pulse)
-0:25 - Senso intelligence: "Similar pattern in 2 previous repos"
 0:30 - All agents complete
 0:32 - Doctor starts generating fixes
-0:37 - Senso agent ingesting to knowledge base
-0:40 - Complete! Health Score reveals: B-
+0:37 - Complete! Health Score reveals: B-
 0:42 - Dashboard fully rendered
 ```
 
@@ -1147,7 +1131,6 @@ During the demo, these sponsor touchpoints must be visible:
 | **OpenAI** | 0:25-0:37 | Provider badge on Security (chain analysis) + Doctor (fix generation) |
 | **Neo4j** | 0:05-0:42 | The entire graph panel — it IS Neo4j |
 | **Tavily** | 0:15-0:25 | Provider badge on Security agent during CVE search |
-| **Senso** | 0:25 + 0:37 + 2:10-2:40 | Intelligence insight, knowledge ingestion, query demo |
 
 ### Footer Sponsor Pulse Timing
 
@@ -1177,8 +1160,7 @@ This creates a visual rhythm of sponsor integration that judges can feel.
 | 2:00-2:30 | **HealthScoreHero + Breakdown** | Score reveal animation, letter grade with glow, five category cards with severity colors |
 | 2:30-3:15 | **FindingsPanel + FindingDetail** | Severity-grouped list, slide-over detail with dual descriptions, code blocks, chain visualization |
 | 3:15-3:45 | **FixPlan** | Priority-ordered list, keystone highlights, documentation expansion, export button |
-| 3:45-4:15 | **SensoIntelligencePanel** | Cross-repo patterns display, query box with search integration, answer rendering with citations |
-| 4:15-4:30 | **Vulnerability overlay** | Graph vulnerability view, chain edge animation, blast radius ripple |
+| 3:45-4:15 | **Vulnerability overlay** | Graph vulnerability view, chain edge animation, blast radius ripple |
 | 4:30-5:00 | **Polish** | Demo repo caching, animation timing, sponsor pulse choreography, responsive fixes |
 | 5:00-5:15 | **Demo prep** | Run through demo script 2x, verify all sponsor touchpoints visible, record backup video |
 
@@ -1199,7 +1181,7 @@ src/
 ├── components/
 │   ├── layout/
 │   │   ├── AppShell.tsx                 # Header + main + footer
-│   │   ├── Header.tsx                   # Wordmark + repo info + Senso status
+│   │   ├── Header.tsx                   # Wordmark + repo info
 │   │   └── SponsorFooter.tsx            # Sponsor logos with active pulse
 │   │
 │   ├── input/
@@ -1236,11 +1218,6 @@ src/
 │   │   ├── FixRow.tsx                   # Single fix with expand
 │   │   └── FixDocumentation.tsx         # Full fix doc with before/after
 │   │
-│   └── senso/
-│       ├── SensoIntelligencePanel.tsx   # Collapsible panel
-│       ├── CrossRepoPatterns.tsx        # Auto-populated pattern list
-│       ├── SensoQueryBox.tsx            # Search input + results
-│       └── SensoAnswer.tsx              # AI answer with cited sources
 │
 ├── hooks/
 │   ├── useAnalysisWebSocket.ts          # WS connection + message routing
@@ -1277,7 +1254,6 @@ src/
 | Score reveal animation | Count-up + spring grade | Instant reveal | Jobs mandate: "should feel like a moment." The 1.8s sequence creates emotional impact. `prefers-reduced-motion` gets instant fallback. |
 | Three graph views | Structure, Dependencies, Vulnerabilities | + Function Calls, Category View | Nielsen mandate: three is the max for hackathon cognitive load. Additional views are v2 stretch. |
 | Finding dual-description | Both technical + plain | Technical only | van Rossum mandate: every finding readable by juniors. Plain description is the FIRST thing shown. |
-| Senso panel location | Collapsible bottom panel | Separate page, sidebar tab | Fadell mandate: intelligence is part of the scan experience, not a separate destination. Collapsed by default, summary line visible. |
 
 ---
 
