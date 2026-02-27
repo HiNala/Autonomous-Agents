@@ -22,10 +22,11 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created / verified")
 
-    # Attempt Neo4j connection (non-fatal — graph features degrade gracefully)
+    # Attempt Neo4j connection and initialize schema (non-fatal — graph features degrade gracefully)
     connected = await neo4j_service.is_connected()
     if connected:
         logger.info("Neo4j connected")
+        await neo4j_service.initialize_schema()
     else:
         logger.warning("Neo4j not available — graph features will use JSON fallback")
 

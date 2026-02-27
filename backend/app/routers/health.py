@@ -112,6 +112,11 @@ async def integration_health(db: AsyncSession = Depends(get_db)):
                 headers={"Authorization": f"Bearer {key}"},
                 json={"task": "classify_text", "text": "hello", "schema": {"categories": ["test"]}},
             )
+            if r.status_code in (401, 403):
+                raise ValueError(f"Fastino auth failed — HTTP {r.status_code}")
+            if r.status_code == 404:
+                # Endpoint path may have changed — key is configured, treat as soft warning
+                return {"message": f"Fastino key configured — endpoint returned {r.status_code} (verify /gliner-2 path)"}
             r.raise_for_status()
             return {"message": "Fastino OK — GLiNER-2 responding"}
 

@@ -385,3 +385,50 @@ async def clear_analysis_graph(analysis_id: str) -> None:
             "MATCH (n {analysisId: $analysisId}) DETACH DELETE n",
             analysisId=analysis_id,
         )
+
+
+# ============================================================
+# SCHEMA INITIALIZATION (run once at startup)
+# ============================================================
+
+# Community Edition uniqueness constraints (single property only — composite NODE KEY is Enterprise-only)
+_CONSTRAINTS = [
+    "CREATE CONSTRAINT repo_url_unique IF NOT EXISTS FOR (n:Repository) REQUIRE n.url IS UNIQUE",
+]
+
+# Composite lookup indexes — compatible with Neo4j 5 Community Edition
+_INDEXES = [
+    # Fast lookup by analysisId (every query scopes by this)
+    "CREATE INDEX file_analysis IF NOT EXISTS FOR (n:File) ON (n.analysisId)",
+    "CREATE INDEX dir_analysis IF NOT EXISTS FOR (n:Directory) ON (n.analysisId)",
+    "CREATE INDEX func_analysis IF NOT EXISTS FOR (n:Function) ON (n.analysisId)",
+    "CREATE INDEX pkg_analysis IF NOT EXISTS FOR (n:Package) ON (n.analysisId)",
+    # Composite index for efficient MERGE (id + analysisId)
+    "CREATE INDEX file_id_analysis IF NOT EXISTS FOR (n:File) ON (n.id, n.analysisId)",
+    "CREATE INDEX dir_id_analysis IF NOT EXISTS FOR (n:Directory) ON (n.id, n.analysisId)",
+    "CREATE INDEX func_id_analysis IF NOT EXISTS FOR (n:Function) ON (n.id, n.analysisId)",
+    "CREATE INDEX pkg_id_analysis IF NOT EXISTS FOR (n:Package) ON (n.id, n.analysisId)",
+    # Severity filtering
+    "CREATE INDEX file_severity IF NOT EXISTS FOR (n:File) ON (n.severity)",
+]
+
+
+async def initialize_schema() -> bool:
+    """Create constraints and indexes if they don't exist. Safe to call multiple times."""
+    driver = _get_driver()
+    if not driver:
+        logger.warning("Neo4j not available — skipping schema initialization")
+        return False
+    try:
+        async with driver.session(database="neo4j") as session:
+            for stmt in _CONSTRAINTS + _INDEXES:
+                try:
+                    await session.run(stmt)
+                except Exception as exc:
+                    # Non-fatal: constraint/index may already exist under a different name
+                    logger.debug("Schema stmt skipped (%s): %s", type(exc).__name__, stmt[:60])
+        logger.info("Neo4j schema initialized (constraints + indexes applied)")
+        return True
+    except Exception as exc:
+        logger.warning("Neo4j schema initialization failed: %s", exc)
+        return False
