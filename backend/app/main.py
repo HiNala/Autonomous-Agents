@@ -6,9 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.models import Analysis  # noqa: F401 — register model with Base.metadata
+from app.models import Analysis, ToolCall  # noqa: F401 — register models with Base.metadata
 from app.routers import health, analysis, ws
-from app.routers import findings, fixes, graph, senso
+from app.routers import findings, fixes, graph, senso, tool_calls
 from app.services import neo4j as neo4j_service
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ app.include_router(findings.router,  prefix="/api/v1", tags=["findings"])
 app.include_router(fixes.router,     prefix="/api/v1", tags=["fixes"])
 app.include_router(graph.router,     prefix="/api/v1", tags=["graph"])
 app.include_router(senso.router,     prefix="/api/v1", tags=["senso"])
+app.include_router(tool_calls.router, prefix="/api/v1", tags=["tool-calls"])
 app.include_router(ws.router,        tags=["websocket"])
 
 

@@ -4,6 +4,14 @@ import { useAnalysisStore } from "@/stores/analysisStore";
 import { severityColor } from "@/lib/colors";
 import type { Finding, Severity } from "@/types/shared";
 
+const CATEGORY_LABELS: Record<string, string> = {
+  codeQuality:  "Code Quality",
+  patterns:     "Patterns",
+  security:     "Security",
+  dependencies: "Dependencies",
+  architecture: "Architecture",
+};
+
 const SEVERITY_ORDER: Severity[] = ["critical", "warning", "info"];
 
 const LABELS: Record<Severity, string> = { critical: "Critical", warning: "Warning", info: "Info" };
@@ -140,13 +148,35 @@ function FindingRow({ finding }: { finding: Finding }) {
   );
 }
 
+const AGENT_FILTER_LABELS: Record<string, string> = {
+  security: "Security",
+  quality:  "Quality",
+  pattern:  "Pattern",
+  mapper:   "Mapper",
+  doctor:   "Doctor",
+};
+
 export function FindingsPanel() {
-  const { findings, result } = useAnalysisStore();
+  const { findings, result, findingFilters, setFindingFilter } = useAnalysisStore();
   const [open, setOpen] = useState<Record<Severity, boolean>>({ critical: true, warning: false, info: false });
 
   const summary = result?.findings;
+  const activeCategory = findingFilters.category;
+  const activeAgent = findingFilters.agent;
+
+  // Compute which agents have findings
+  const agentsWithFindings = Array.from(new Set(findings.map((f) => f.agent))).filter(
+    (a) => a && AGENT_FILTER_LABELS[a as string]
+  );
+
+  const filteredFindings = findings.filter((f) => {
+    if (activeCategory && f.agent !== activeCategory && (f as Finding & { category?: string }).category !== activeCategory) return false;
+    if (activeAgent && f.agent !== activeAgent) return false;
+    return true;
+  });
+
   const grouped = SEVERITY_ORDER.reduce<Record<Severity, Finding[]>>(
-    (acc, sev) => { acc[sev] = findings.filter((f) => f.severity === sev); return acc; },
+    (acc, sev) => { acc[sev] = filteredFindings.filter((f) => f.severity === sev); return acc; },
     { critical: [], warning: [], info: [] }
   );
 
@@ -172,6 +202,8 @@ export function FindingsPanel() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          gap: "var(--space-2)",
+          flexWrap: "wrap",
         }}
       >
         <h2
@@ -185,25 +217,113 @@ export function FindingsPanel() {
             fontWeight: 600,
           }}
         >
-          FINDINGS{summary ? ` (${summary.total})` : ""}
+          FINDINGS{summary ? ` (${activeCategory ? filteredFindings.length : summary.total})` : ""}
         </h2>
-        {summary && summary.critical > 0 && (
-          <span
+        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+          {activeCategory && (
+            <button
+              onClick={() => setFindingFilter({ category: undefined })}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                fontSize: "var(--text-micro)",
+                color: "var(--color-accent-text)",
+                fontFamily: "var(--font-code)",
+                background: "var(--color-accent-dim)",
+                border: "1px solid var(--color-accent-border)",
+                borderRadius: "var(--radius-full)",
+                padding: "1px 8px",
+                cursor: "pointer",
+                animation: "badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              }}
+            >
+              {CATEGORY_LABELS[activeCategory] ?? activeCategory}
+              <span style={{ opacity: 0.7 }}>✕</span>
+            </button>
+          )}
+          {!activeCategory && summary && summary.critical > 0 && (
+            <span
+              style={{
+                fontSize: "var(--text-micro)",
+                color: "var(--color-critical-text)",
+                fontFamily: "var(--font-code)",
+                background: "var(--color-critical-dim)",
+                border: "1px solid var(--color-critical-border)",
+                borderRadius: "var(--radius-full)",
+                padding: "1px 8px",
+                animation: "badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              }}
+            >
+              {summary.critical} critical
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Agent quick-filter tabs */}
+      {agentsWithFindings.length > 1 && (
+        <div
+          style={{
+            padding: "8px var(--space-4)",
+            borderBottom: "1px solid var(--border-subtle)",
+            display: "flex",
+            gap: "var(--space-2)",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            onClick={() => setFindingFilter({ agent: undefined })}
             style={{
-              fontSize: "var(--text-micro)",
-              color: "var(--color-critical-text)",
-              fontFamily: "var(--font-code)",
-              background: "var(--color-critical-dim)",
-              border: "1px solid var(--color-critical-border)",
+              padding: "2px 9px",
               borderRadius: "var(--radius-full)",
-              padding: "1px 8px",
-              animation: "badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              border: `1px solid ${!activeAgent ? "var(--border-hover)" : "var(--border-default)"}`,
+              background: !activeAgent ? "rgba(255,255,255,0.06)" : "transparent",
+              color: !activeAgent ? "var(--text-primary)" : "var(--text-tertiary)",
+              fontSize: "var(--text-micro)",
+              fontFamily: "var(--font-code)",
+              cursor: "pointer",
+              transition: "all 0.12s ease",
             }}
           >
-            {summary.critical} critical
-          </span>
-        )}
-      </div>
+            All
+          </button>
+          {agentsWithFindings.map((agent) => {
+            const isActive = activeAgent === agent;
+            return (
+              <button
+                key={agent}
+                onClick={() => setFindingFilter({ agent: isActive ? undefined : agent as Finding["agent"] })}
+                style={{
+                  padding: "2px 9px",
+                  borderRadius: "var(--radius-full)",
+                  border: `1px solid ${isActive ? "var(--border-hover)" : "var(--border-subtle)"}`,
+                  background: isActive ? "rgba(255,255,255,0.06)" : "transparent",
+                  color: isActive ? "var(--text-secondary)" : "var(--text-quaternary)",
+                  fontSize: "var(--text-micro)",
+                  fontFamily: "var(--font-code)",
+                  cursor: "pointer",
+                  transition: "all 0.12s ease",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLElement).style.color = "var(--text-tertiary)";
+                    (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLElement).style.color = "var(--text-quaternary)";
+                    (e.currentTarget as HTMLElement).style.borderColor = "var(--border-subtle)";
+                  }
+                }}
+              >
+                {AGENT_FILTER_LABELS[agent as string] ?? agent}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Severity groups */}
       {SEVERITY_ORDER.map((sev) => {

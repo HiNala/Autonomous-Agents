@@ -17,6 +17,7 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://vibecheck.dev"),
   title: {
     default: "VIBE CHECK — Codebase Intelligence",
     template: "%s | VIBE CHECK",

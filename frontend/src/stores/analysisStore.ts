@@ -34,7 +34,7 @@ interface AnalysisStore {
   highlightedChainId: string | null;
   findings: Finding[];
   liveFindings: Array<{ id: string; severity: Severity; title: string; agent: AgentName }>;
-  findingFilters: { severity?: Severity; agent?: AgentName };
+  findingFilters: { severity?: Severity; agent?: AgentName; category?: string };
   selectedFindingId: string | null;
   fixes: Fix[];
   fixSummary: FixSummary | null;
@@ -55,6 +55,7 @@ interface AnalysisStore {
   setFindings: (findings: Finding[]) => void;
   setFixes: (fixes: Fix[], summary: FixSummary) => void;
   setChains: (chains: VulnerabilityChain[]) => void;
+  setFindingFilter: (filter: Partial<{ severity?: Severity; agent?: AgentName; category?: string }>) => void;
   setGraphView: (view: GraphViewMode) => void;
   selectNode: (nodeId: string | null) => void;
   selectFinding: (findingId: string | null) => void;
@@ -120,6 +121,7 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
   setFixes: (fixes, fixSummary) => set({ fixes, fixSummary }),
   setChains: (chains) => set({ chains }),
 
+  setFindingFilter: (filter) => set((s) => ({ findingFilters: { ...s.findingFilters, ...filter } })),
   setGraphView: (view) => set({ currentGraphView: view }),
   selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
   selectFinding: (findingId) => set({ selectedFindingId: findingId }),

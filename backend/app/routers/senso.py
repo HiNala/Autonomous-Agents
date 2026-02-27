@@ -20,7 +20,7 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-SENSO_BASE = "https://api.senso.ai/v1"
+SENSO_BASE = "https://sdk.senso.ai/api/v1"
 
 
 class SensoSearchRequest(CamelModel):
@@ -111,10 +111,10 @@ async def senso_search(
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
                 f"{SENSO_BASE}/search",
-                headers={"Authorization": f"Bearer {settings.senso_api_key}", "Content-Type": "application/json"},
+                headers={"X-API-Key": settings.senso_api_key, "Content-Type": "application/json"},
                 json={
                     "query": body.query,
-                    "maxResults": body.max_results,
+                    "max_results": body.max_results,
                     **({"namespace": body.namespace} if body.namespace else {}),
                 },
             )
@@ -159,11 +159,11 @@ async def senso_generate(
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"{SENSO_BASE}/generate",
-                headers={"Authorization": f"Bearer {settings.senso_api_key}", "Content-Type": "application/json"},
+                headers={"X-API-Key": settings.senso_api_key, "Content-Type": "application/json"},
                 json={
-                    "prompt": body.prompt,
-                    **({"contextQuery": body.context_query} if body.context_query else {}),
-                    "saveResult": body.save_result,
+                    "instructions": body.prompt,
+                    **({"context_query": body.context_query} if body.context_query else {}),
+                    "save": body.save_result,
                 },
             )
             resp.raise_for_status()

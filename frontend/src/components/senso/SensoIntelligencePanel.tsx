@@ -29,8 +29,8 @@ export function SensoIntelligencePanel() {
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const sensoSummary = result?.findings;
-  const hasIntelligence = sensoInsights.length > 0;
+  const sensoSummary = result?.sensoIntelligence;
+  const hasIntelligence = sensoInsights.length > 0 || (sensoSummary?.crossRepoPatterns ?? 0) > 0;
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -100,7 +100,7 @@ export function SensoIntelligencePanel() {
             INTELLIGENCE
           </span>
 
-          {hasIntelligence && (
+          {(sensoInsights.length > 0 || (sensoSummary?.crossRepoPatterns ?? 0) > 0) && (
             <span
               style={{
                 fontSize: "var(--text-micro)",
@@ -109,10 +109,10 @@ export function SensoIntelligencePanel() {
                 opacity: 0.8,
               }}
             >
-              · {sensoInsights.length} cross-repo pattern{sensoInsights.length !== 1 ? "s" : ""}
+              · {sensoSummary?.crossRepoPatterns ?? sensoInsights.length} cross-repo pattern{(sensoSummary?.crossRepoPatterns ?? sensoInsights.length) !== 1 ? "s" : ""}
             </span>
           )}
-          {sensoSummary && (
+          {sensoSummary && (sensoSummary.knowledgeBaseContributions ?? 0) > 0 && (
             <span
               style={{
                 fontSize: "var(--text-micro)",
@@ -120,7 +120,19 @@ export function SensoIntelligencePanel() {
                 fontFamily: "var(--font-code)",
               }}
             >
-              · {sensoSummary.total} findings indexed
+              · {sensoSummary.knowledgeBaseContributions} entries saved
+            </span>
+          )}
+          {sensoSummary && (sensoSummary.previousFixesApplied ?? 0) > 0 && (
+            <span
+              style={{
+                fontSize: "var(--text-micro)",
+                color: SENSO_TEXT,
+                fontFamily: "var(--font-code)",
+                opacity: 0.7,
+              }}
+            >
+              · {sensoSummary.previousFixesApplied} prior fixes applied
             </span>
           )}
         </div>

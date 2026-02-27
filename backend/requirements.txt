@@ -11,7 +11,7 @@ psycopg2-binary==2.9.10
 alembic==1.14.1
 
 # Async HTTP
-httpx==0.28.1
+httpx>=0.26.0,<0.28.0
 websockets==14.1
 
 # Graph Database
@@ -20,7 +20,7 @@ neo4j==5.27.0
 # AI / LLM — Sponsor Integrations
 openai>=1.50.0
 tavily-python>=0.5.0
-yutori>=0.1.0
+yutori>=0.4.0
 
 # Utilities
 python-dotenv==1.0.1
