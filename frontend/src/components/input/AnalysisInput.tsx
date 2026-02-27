@@ -97,7 +97,7 @@ export function AnalysisInput() {
         style={{
           position: "absolute",
           inset: 0,
-          background: "radial-gradient(ellipse 70% 60% at 50% 45%, rgba(59,130,246,0.05) 0%, transparent 70%)",
+          background: "radial-gradient(ellipse 80% 65% at 50% 45%, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.04) 50%, transparent 70%)",
           pointerEvents: "none",
         }}
       />
@@ -117,16 +117,17 @@ export function AnalysisInput() {
         <div style={{ textAlign: "center" }}>
           <h1
             style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: "2.25rem",
-              letterSpacing: "0.22em",
-              textTransform: "uppercase",
-              margin: "0 0 var(--space-2)",
-              background: "linear-gradient(135deg, #F4F4F5 0%, #A1A1AA 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
+            fontFamily: "var(--font-display)",
+            fontWeight: 700,
+            fontSize: "2.25rem",
+            letterSpacing: "0.22em",
+            textTransform: "uppercase",
+            margin: "0 0 var(--space-2)",
+            background: "linear-gradient(135deg, #FFFFFF 0%, #E4E4F0 40%, #93C5FD 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            filter: "drop-shadow(0 0 20px rgba(147,197,253,0.35))",
             }}
           >
             VIBE CHECK
@@ -149,17 +150,17 @@ export function AnalysisInput() {
           onSubmit={handleSubmit}
           style={{
             width: "100%",
-            background: "rgba(17, 17, 22, 0.72)",
-            backdropFilter: "blur(12px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(12px) saturate(1.4)",
-            border: "1px solid rgba(255, 255, 255, 0.07)",
+            background: "rgba(14, 14, 22, 0.62)",
+            backdropFilter: "blur(20px) saturate(2.0)",
+            WebkitBackdropFilter: "blur(20px) saturate(2.0)",
+            border: "1px solid rgba(255, 255, 255, 0.11)",
             borderRadius: "var(--radius-xl)",
             padding: "var(--space-5)",
             display: "flex",
             flexDirection: "column",
             gap: "var(--space-4)",
             boxShadow:
-              "0 0 0 1px rgba(255,255,255,0.04) inset, 0 8px 32px rgba(0,0,0,0.48), 0 1px 0 rgba(255,255,255,0.05) inset",
+              "0 0 0 1px rgba(255,255,255,0.07) inset, 0 12px 48px rgba(0,0,0,0.40), 0 1px 0 rgba(255,255,255,0.12) inset, 0 0 60px rgba(59,130,246,0.08)",
             position: "relative",
           }}
         >
@@ -172,7 +173,7 @@ export function AnalysisInput() {
               right: 0,
               height: 1,
               background:
-                "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 20%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.06) 80%, transparent 100%)",
+                "linear-gradient(90deg, transparent 0%, rgba(79,143,247,0.25) 20%, rgba(255,255,255,0.22) 50%, rgba(79,143,247,0.25) 80%, transparent 100%)",
               borderRadius: "var(--radius-xl) var(--radius-xl) 0 0",
             }}
           />
@@ -277,10 +278,10 @@ export function AnalysisInput() {
               letterSpacing: "0.04em",
               color: "#FFFFFF",
               background: loading
-                ? "rgba(29,78,216,0.6)"
-                : "linear-gradient(135deg, #1D4ED8 0%, #3B82F6 50%, #1D4ED8 100%)",
+                ? "rgba(37,99,235,0.7)"
+                : "linear-gradient(135deg, #1E40AF 0%, #2563EB 35%, #3B82F6 65%, #2563EB 100%)",
               backgroundSize: "200% 100%",
-              border: "1px solid rgba(96, 165, 250, 0.4)",
+              border: "1px solid rgba(147, 197, 253, 0.45)",
               borderRadius: "var(--radius-lg)",
               cursor: loading ? "not-allowed" : "pointer",
               display: "flex",
@@ -290,7 +291,7 @@ export function AnalysisInput() {
               position: "relative",
               overflow: "hidden",
               transition: "box-shadow 0.3s ease, transform 0.15s ease",
-              boxShadow: "0 0 0 1px rgba(59,130,246,0.2), 0 4px 16px rgba(59,130,246,0.25), 0 1px 0 rgba(255,255,255,0.1) inset",
+              boxShadow: "0 0 0 1px rgba(147,197,253,0.25), 0 4px 24px rgba(59,130,246,0.45), 0 1px 0 rgba(255,255,255,0.18) inset",
             }}
             onMouseEnter={(e) => {
               if (!loading) {

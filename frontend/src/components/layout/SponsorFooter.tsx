@@ -30,10 +30,10 @@ export function SponsorFooter() {
         left: 0,
         right: 0,
         height: "40px",
-        background: "rgba(9, 9, 11, 0.88)",
-        backdropFilter: "blur(16px) saturate(1.4)",
-        WebkitBackdropFilter: "blur(16px) saturate(1.4)",
-        borderTop: "1px solid var(--border-subtle)",
+        background: "rgba(7, 7, 12, 0.75)",
+        backdropFilter: "blur(16px) saturate(1.8)",
+        WebkitBackdropFilter: "blur(16px) saturate(1.8)",
+        borderTop: "1px solid rgba(255,255,255,0.09)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -83,17 +83,19 @@ export function SponsorFooter() {
             />
 
             <span
-              style={{
-                fontSize: "var(--text-micro)",
-                fontFamily: "var(--font-code)",
-                fontWeight: 600,
-                color: showColor ? s.color : "var(--text-quaternary)",
-                letterSpacing: "0.06em",
-                filter: showColor ? `drop-shadow(0 0 4px ${s.color}44)` : "none",
-                transition: "color 0.3s ease, filter 0.3s ease",
-                animation: isActive ? "sponsor-pulse 1.5s ease-in-out infinite" : undefined,
-                cursor: "default",
-              }}
+            style={{
+              fontSize: "var(--text-micro)",
+              fontFamily: "var(--font-code)",
+              fontWeight: 600,
+              color: isActive || isHovered ? s.color : `${s.color}BB`,
+              letterSpacing: "0.06em",
+              filter: isActive || isHovered
+                ? `drop-shadow(0 0 6px ${s.color}66)`
+                : `drop-shadow(0 0 3px ${s.color}33)`,
+              transition: "color 0.3s ease, filter 0.3s ease",
+              animation: isActive ? "sponsor-pulse 1.5s ease-in-out infinite" : undefined,
+              cursor: "default",
+            }}
             >
               {s.name}
             </span>

@@ -227,10 +227,10 @@ export function Header() {
         left: 0,
         right: 0,
         height: "56px",
-        background: "rgba(9, 9, 11, 0.82)",
-        backdropFilter: "blur(20px) saturate(1.4)",
-        WebkitBackdropFilter: "blur(20px) saturate(1.4)",
-        borderBottom: "1px solid var(--border-subtle)",
+        background: "rgba(7, 7, 12, 0.72)",
+        backdropFilter: "blur(20px) saturate(1.8)",
+        WebkitBackdropFilter: "blur(20px) saturate(1.8)",
+        borderBottom: "1px solid rgba(255,255,255,0.09)",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -248,10 +248,11 @@ export function Header() {
           letterSpacing: "0.18em",
           textTransform: "uppercase",
           textDecoration: "none",
-          background: "linear-gradient(135deg, #F4F4F5 0%, #A1A1AA 100%)",
+          background: "linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 60%, #93C5FD 100%)",
           WebkitBackgroundClip: "text",
           WebkitTextFillColor: "transparent",
           backgroundClip: "text",
+          filter: "drop-shadow(0 0 10px rgba(147,197,253,0.25))",
         }}
       >
         VIBE CHECK
