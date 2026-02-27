@@ -162,28 +162,24 @@ async def _clone_repo(analysis_id: str) -> str:
 
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
 
-    async def _run_clone(branch_arg: str | None) -> tuple[int, bytes, bytes]:
-        cmd = ["git", "clone", "--depth=1"]
-        if branch_arg:
-            cmd += ["--branch", branch_arg]
-        cmd += [effective_url, clone_dir]
-        p = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        out, err = await p.communicate()
-        return p.returncode, out, err
+    # If the user didn't specify a non-default branch, let git use the remote's
+    # HEAD (which is "main" on modern GitHub repos). Only pin a branch when the
+    # user explicitly requested one that isn't the generic default.
+    branch_arg = branch if branch and branch not in ("main",) else None
 
-    # Try specified branch first; if it fails and the branch is the generic default
-    # ("main"), retry without --branch so git picks the remote's actual default
-    returncode, stdout, stderr = await _run_clone(branch)
-    if returncode != 0 and branch in ("main", "master"):
-        import shutil
-        shutil.rmtree(clone_dir, ignore_errors=True)
-        os.makedirs(clone_dir, exist_ok=True)
-        returncode, stdout, stderr = await _run_clone(None)
+    cmd = ["git", "clone", "--depth=1"]
+    if branch_arg:
+        cmd += ["--branch", branch_arg]
+    cmd += [effective_url, clone_dir]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await proc.communicate()
+    returncode = proc.returncode
 
     # Detect which branch was actually checked out
     if returncode == 0:
@@ -192,9 +188,9 @@ async def _clone_repo(analysis_id: str) -> str:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env,
         )
         b_out, _ = await bp.communicate()
-        detected_branch = b_out.decode().strip() or branch
+        detected_branch = b_out.decode().strip() or "main"
     else:
-        detected_branch = branch
+        detected_branch = branch or "main"
 
     await log_tool_call(
         analysis_id=analysis_id,
