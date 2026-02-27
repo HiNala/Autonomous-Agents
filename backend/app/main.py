@@ -1,17 +1,25 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import health, analysis
+from app.database import engine, Base
+from app.models import Analysis  # noqa: F401 — register model with Base.metadata
+from app.routers import health, analysis, ws
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables created / verified")
     yield
+    await engine.dispose()
 
 
 app = FastAPI(
@@ -30,8 +38,9 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(analysis.router, prefix="/api/v1", tags=["analysis"])
+app.include_router(ws.router, tags=["websocket"])
 
 
 @app.get("/")
 async def root():
-    return {"message": "VIBE CHECK API", "docs": "/docs"}
+    return {"message": "VIBE CHECK API", "version": "0.1.0", "docs": "/docs"}

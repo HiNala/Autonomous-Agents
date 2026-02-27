@@ -1,13 +1,12 @@
-FROM node:20-alpine AS deps
+FROM node:20-alpine
+
 WORKDIR /app
-COPY package.json package-lock.json* ./
+
+COPY package*.json ./
 RUN npm ci
 
-FROM node:20-alpine AS dev
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
 EXPOSE 3000
-ENV HOSTNAME="0.0.0.0"
-ENV NODE_ENV=development
-CMD ["npm", "run", "dev"]
+
+CMD ["npx", "next", "dev", "--hostname", "0.0.0.0"]
