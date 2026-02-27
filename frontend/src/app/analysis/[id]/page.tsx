@@ -1,6 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { use } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { AnalysisProgress } from "@/components/progress/AnalysisProgress";
 import { HealthScoreHero } from "@/components/score/HealthScoreHero";
@@ -10,7 +11,6 @@ import { FindingsPanel } from "@/components/findings/FindingsPanel";
 import { FindingDetail } from "@/components/findings/FindingDetail";
 import { FixPlan } from "@/components/fixes/FixPlan";
 import { SensoIntelligencePanel } from "@/components/senso/SensoIntelligencePanel";
-import { RepoCard } from "@/components/analysis/RepoCard";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import { useAnalysisWebSocket } from "@/hooks/useAnalysisWebSocket";
 import { api } from "@/lib/api";
@@ -41,46 +41,60 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
 
   return (
     <AppShell>
-      {/* ── SCANNING VIEW ────────────────────────────────── */}
+      {/* ── SCANNING VIEW ─────────────────────────────────── */}
       {isScanning && <AnalysisProgress />}
 
-      {/* ── COMPLETED DASHBOARD ──────────────────────────── */}
+      {/* ── COMPLETED DASHBOARD ───────────────────────────── */}
       {isCompleted && (
-        <div className="dashboard-grid animate-fade-in">
-
-          {/* Row 1 — Repo header */}
-          <div className="dashboard-full-row">
-            <RepoCard />
-          </div>
-
-          {/* Row 2 — Score hero (left) + breakdown (right) */}
-          <div className="dashboard-score-row">
+        <div
+          style={{
+            maxWidth: 1400,
+            margin: "0 auto",
+            padding: "var(--space-5) var(--space-6)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-5)",
+          }}
+          className="animate-fade-in"
+        >
+          {/* Row 1 — Score hero + breakdown */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "260px 1fr",
+              gap: "var(--space-5)",
+              alignItems: "start",
+            }}
+          >
             <HealthScoreHero />
             <ScoreBreakdown />
           </div>
 
-          {/* Row 3 — Graph (wide) + Findings (narrow) */}
-          <div className="dashboard-main-row">
+          {/* Row 2 — Graph + Findings */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "60% 1fr",
+              gap: "var(--space-5)",
+              alignItems: "start",
+            }}
+          >
             <GraphPanel />
             <FindingsPanel />
           </div>
 
-          {/* Row 4 — Fix plan */}
-          <div className="dashboard-full-row">
-            <FixPlan />
-          </div>
+          {/* Row 3 — Fix plan */}
+          <FixPlan />
 
-          {/* Row 5 — Senso intelligence */}
-          <div className="dashboard-full-row">
-            <SensoIntelligencePanel />
-          </div>
+          {/* Row 4 — Senso intelligence */}
+          <SensoIntelligencePanel />
         </div>
       )}
 
-      {/* Finding detail slide-over */}
+      {/* Finding detail slide-over — outside grid, overlays everything */}
       {isCompleted && <FindingDetail />}
 
-      {/* ── FAILED STATE ────────────────────────────────── */}
+      {/* ── FAILED STATE ──────────────────────────────────── */}
       {isFailed && <FailedState />}
     </AppShell>
   );
@@ -88,6 +102,7 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
 
 function FailedState() {
   const { errorMessage } = useAnalysisStore();
+
   return (
     <div
       style={{
@@ -96,67 +111,110 @@ function FailedState() {
         alignItems: "center",
         justifyContent: "center",
         minHeight: "60vh",
-        gap: "var(--space-5)",
         padding: "var(--space-6)",
-        textAlign: "center",
       }}
     >
       <div
         style={{
-          width: 64,
-          height: 64,
-          borderRadius: "50%",
-          background: "rgba(239,68,68,0.12)",
-          border: "1px solid rgba(239,68,68,0.3)",
+          maxWidth: 480,
+          width: "100%",
+          background: "rgba(17, 17, 22, 0.72)",
+          backdropFilter: "blur(12px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(12px) saturate(1.4)",
+          border: "1px solid rgba(245, 158, 11, 0.25)",
+          borderLeft: "4px solid var(--color-warning)",
+          borderRadius: "var(--radius-xl)",
+          padding: "var(--space-8) var(--space-6)",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
-          fontSize: "1.5rem",
+          gap: "var(--space-4)",
+          textAlign: "center",
+          boxShadow: "var(--shadow-modal), 0 0 40px rgba(245,158,11,0.08)",
+          animation: "slide-up 0.3s ease-out",
         }}
       >
-        ✕
-      </div>
-      <div>
-        <h2
+        {/* Icon */}
+        <div
           style={{
-            fontSize: "var(--text-h2)",
-            color: "var(--color-critical-text)",
-            margin: "0 0 var(--space-3)",
-            fontFamily: "var(--font-display)",
-            letterSpacing: "0.05em",
+            width: 52,
+            height: 52,
+            borderRadius: "50%",
+            background: "rgba(245, 158, 11, 0.12)",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "1.5rem",
           }}
         >
-          ANALYSIS FAILED
-        </h2>
-        <p
-          style={{
-            color: "var(--text-secondary)",
-            margin: 0,
-            maxWidth: 420,
-            lineHeight: 1.7,
-            fontSize: "var(--text-small)",
-          }}
-        >
-          {errorMessage ?? "An unexpected error occurred. Please check the repository URL and try again."}
-        </p>
+          ⚠
+        </div>
+
+        <div>
+          <h2
+            style={{
+              fontSize: "var(--text-h2)",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              margin: "0 0 var(--space-2)",
+              fontFamily: "var(--font-heading)",
+            }}
+          >
+            Something went wrong
+          </h2>
+          <p
+            style={{
+              color: "var(--text-secondary)",
+              margin: 0,
+              maxWidth: 380,
+              lineHeight: 1.65,
+              fontSize: "var(--text-body)",
+            }}
+          >
+            {errorMessage ?? "An unexpected error occurred. Please check the repository URL and try again."}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
+          <Link
+            href="/"
+            style={{
+              background: "rgba(17, 17, 22, 0.8)",
+              color: "var(--text-secondary)",
+              padding: "10px 20px",
+              borderRadius: "var(--radius-md)",
+              textDecoration: "none",
+              fontWeight: 500,
+              fontSize: "var(--text-small)",
+              border: "1px solid var(--border-default)",
+              transition: "all 0.15s ease",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ← Try Another Repo
+          </Link>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              background: "rgba(59, 130, 246, 0.15)",
+              color: "var(--color-accent-text)",
+              padding: "10px 20px",
+              borderRadius: "var(--radius-md)",
+              fontWeight: 500,
+              fontSize: "var(--text-small)",
+              border: "1px solid var(--color-accent-border)",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            ↺ Retry
+          </button>
+        </div>
       </div>
-      <a
-        href="/"
-        style={{
-          background: "var(--color-accent)",
-          color: "white",
-          padding: "12px 28px",
-          borderRadius: "var(--radius-md)",
-          textDecoration: "none",
-          fontWeight: 600,
-          fontSize: "var(--text-small)",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        ← Try Another Repo
-      </a>
     </div>
   );
 }

@@ -42,14 +42,14 @@ export function HealthScoreHero() {
 
   // Reveal phases
   const [phase, setPhase] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!hs) return;
     // T+0: container appears
     setPhase(1);
     timerRef.current = setTimeout(() => setPhase(2), 300); // T+300: count-up starts
-    return () => clearTimeout(timerRef.current);
+    return () => clearTimeout(timerRef.current ?? undefined);
   }, [hs]);
 
   const countEnabled = phase >= 2;

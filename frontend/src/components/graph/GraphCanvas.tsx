@@ -45,7 +45,6 @@ function layoutForView(view: GraphViewMode): cytoscape.LayoutOptions {
   if (view === "structure") {
     return {
       name: "dagre",
-      // @ts-expect-error plugin option
       rankDir: "TB",
       nodeSep: 28,
       rankSep: 55,
@@ -61,7 +60,6 @@ function layoutForView(view: GraphViewMode): cytoscape.LayoutOptions {
       animate: true,
       animationDuration: 500,
       randomize: false,
-      // @ts-expect-error plugin option
       idealEdgeLength: 80,
       nodeRepulsion: 4500,
       numIter: 2500,
@@ -133,28 +131,27 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
     if (!containerRef.current) return;
     ensureRegistered();
 
-    const cy = cytoscape({
-      container: containerRef.current,
-      style: [
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const style: any[] = [
         // Base node
         {
           selector: "node",
           style: {
-            "background-color": (ele) => {
+            "background-color": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
               if (sev === "critical") return "#450A0A";
               if (sev === "warning")  return "#431407";
               return NODE_TYPE_COLOR[ele.data("type") as string] ?? "#A1A1AA";
             },
-            "width":  (ele) => nodeSize(Number(ele.data("findingCount") ?? 0)),
-            "height": (ele) => nodeSize(Number(ele.data("findingCount") ?? 0)),
-            "border-width": (ele) => {
+            "width":  (ele: cytoscape.NodeSingular) => nodeSize(Number(ele.data("findingCount") ?? 0)),
+            "height": (ele: cytoscape.NodeSingular) => nodeSize(Number(ele.data("findingCount") ?? 0)),
+            "border-width": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
               if (sev === "critical") return 2.5;
               if (sev === "warning")  return 2;
               return ele.data("findingCount") > 0 ? 1.5 : 1;
             },
-            "border-color": (ele) => {
+            "border-color": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
               return SEVERITY_BORDER[sev] ?? "rgba(255,255,255,0.15)";
             },
@@ -169,22 +166,22 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
             "text-margin-y": 5,
             "text-max-width": "80px",
             "text-wrap": "ellipsis",
-            "shadow-blur": (ele) => {
+            "shadow-blur": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
               return SEVERITY_SHADOW[sev]?.blur ?? 0;
             },
-            "shadow-color": (ele) => {
+            "shadow-color": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
               return SEVERITY_SHADOW[sev]?.color ?? "#000000";
             },
-            "shadow-opacity": (ele) => {
+            "shadow-opacity": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
               return SEVERITY_SHADOW[sev]?.opacity ?? 0;
             },
             "shadow-offset-x": 0,
             "shadow-offset-y": 0,
             "transition-property": "background-color, border-color, shadow-blur, shadow-opacity, width, height, border-width",
-            "transition-duration": "0.25s",
+            "transition-duration": 250,
           },
         },
 
@@ -370,10 +367,14 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
           selector: "edge.dimmed",
           style: {
             "opacity": 0.05,
-            "transition-duration": "0.3s",
+            "transition-duration": 300,
           },
         },
-      ],
+    ];
+
+    const cy = cytoscape({
+      container: containerRef.current,
+      style,
       layout: { name: "preset" },
       wheelSensitivity: 0.15,
       minZoom: 0.1,
