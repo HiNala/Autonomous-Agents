@@ -75,11 +75,46 @@ async def run_pipeline(analysis_id: str) -> None:
         # Broadcast file nodes as they're mapped
         await _ws_activity(analysis_id, "mapper", f"Scanned {metadata['stats']['total_files']} files, {metadata['stats']['total_lines']} lines", "openai")
 
-        # ── 3. TAVILY — CVE Search ──────────────────────────────
+        # ── 3. TAVILY — CVE Search + Best Practices Research ────
         await _update_status(analysis_id, AnalysisStatus.ANALYZING)
-        await _ws(analysis_id, "security", "running", 0.1, "Searching for CVEs...")
+        await _ws(analysis_id, "security", "running", 0.1, "Searching for CVEs and best practices...")
         await _ws_activity(analysis_id, "security", "Querying CVE databases via Tavily...", "tavily")
         cve_results = await _tavily_cve_search(tavily, analysis_id, metadata)
+
+        # ── 3a. Best practices and vulnerability research via Tavily
+        bp_findings: list[dict] = []
+        await _ws(analysis_id, "security", "running", 0.15, "Researching best practices...")
+        await _ws_activity(analysis_id, "security", "Researching security best practices via Tavily...", "tavily")
+        bp_findings = await _tavily_best_practices_search(tavily, openai, analysis_id, metadata)
+        for f in bp_findings:
+            await _ws_finding(analysis_id, f)
+        if bp_findings:
+            await _ws_activity(analysis_id, "security", f"Found {len(bp_findings)} best-practice issues", "tavily")
+
+        # ── 3b. Extract + parse CVE entities (Tavily extract + Fastino NER)
+        cve_findings: list[dict] = []
+        if cve_results:
+            cve_findings = await _tavily_extract_and_fastino_cve(
+                tavily, fastino, analysis_id, cve_results
+            )
+            for f in cve_findings:
+                await _ws_finding(analysis_id, f)
+            if cve_findings:
+                await _ws_activity(analysis_id, "security", f"Extracted {len(cve_findings)} CVE findings", "fastino")
+
+        # ── 3c. Best-practices & known-vulnerability research (Tavily) ──────
+        best_practices: list[dict] = []
+        best_practices_context: str = ""
+        if tavily.available:
+            await _ws(analysis_id, "security", "running", 0.28,
+                      "Researching security best practices & known vulnerabilities...")
+            await _ws_activity(analysis_id, "security",
+                               "Querying OWASP, CWE, and framework security advisories via Tavily...", "tavily")
+            best_practices = await _tavily_best_practices_research(tavily, analysis_id, metadata)
+            if best_practices:
+                best_practices_context = await _tavily_extract_best_practices(tavily, analysis_id, best_practices)
+                await _ws_activity(analysis_id, "security",
+                                   f"Gathered intelligence from {len(best_practices)} security knowledge sources", "tavily")
 
         # ── 4. Code Quality Analysis (Fastino primary, OpenAI fallback)
         quality_findings: list[dict] = []
@@ -104,7 +139,8 @@ async def run_pipeline(analysis_id: str) -> None:
             await _ws(analysis_id, "pattern", "running", 0.3, "Deep pattern analysis...")
             await _ws_activity(analysis_id, "pattern", "Running deep pattern and architecture analysis...", "openai")
             deep_findings = await _openai_analyze(
-                openai, analysis_id, clone_dir, metadata, cve_results, quality_findings
+                openai, analysis_id, clone_dir, metadata, cve_results, quality_findings,
+                best_practices_context=best_practices_context,
             )
             for f in deep_findings:
                 await _ws_finding(analysis_id, f)
@@ -112,23 +148,33 @@ async def run_pipeline(analysis_id: str) -> None:
                 await _ws_activity(analysis_id, "pattern", f"Found {len(deep_findings)} pattern/security issues", "openai")
 
         # ── Aggregate Findings ──────────────────────────────────
-        all_findings = _merge_findings(cve_results, quality_findings, deep_findings, yutori_results)
+        all_findings = _merge_findings(cve_findings, bp_findings, quality_findings, deep_findings, yutori_results)
         health_score = _compute_health_score(all_findings, metadata["stats"])
 
-        # ── 7. NEO4J — Build Graph ──────────────────────────────
+        # ── 7. Doctor Agent — Generate Fixes ─────────────────────
+        fixes: list[dict] = []
+        if all_findings and openai.available:
+            await _ws(analysis_id, "doctor", "running", 0.3, "Generating fix plans...")
+            await _ws_activity(analysis_id, "doctor", "Generating remediation plans...", "openai")
+            fixes = await _generate_fixes(openai, analysis_id, all_findings, metadata)
+            if fixes:
+                await _ws_activity(analysis_id, "doctor", f"Generated {len(fixes)} fix recommendations", "openai")
+            await _ws(analysis_id, "doctor", "complete", 1.0, f"{len(fixes)} fixes generated")
+
+        # ── 8. NEO4J — Build Graph ──────────────────────────────
         await _ws(analysis_id, "orchestrator", "running", 0.85, "Building knowledge graph...")
         await _ws_activity(analysis_id, "mapper", "Constructing Neo4j knowledge graph...", "neo4j")
         graph = await _build_neo4j_graph(analysis_id, metadata, all_findings)
-        # Stream graph nodes/edges to frontend
-        for n in graph.get("nodes", [])[:50]:
+        # Stream graph nodes/edges to frontend (limit to 300 for performance)
+        for n in graph.get("nodes", [])[:300]:
             await _ws_graph_node(analysis_id, n)
-        for e in graph.get("edges", [])[:50]:
+        for e in graph.get("edges", [])[:300]:
             await _ws_graph_edge(analysis_id, e)
         await _ws_activity(analysis_id, "mapper", f"Graph built: {len(graph.get('nodes', []))} nodes, {len(graph.get('edges', []))} edges", "neo4j")
 
         # ── COMPLETE ────────────────────────────────────────────
         duration = round(time.time() - t_start)
-        await _finalize(analysis_id, all_findings, health_score, graph, duration)
+        await _finalize(analysis_id, all_findings, health_score, graph, duration, fixes=fixes)
 
         await _ws_complete(analysis_id, health_score, all_findings, duration)
 
@@ -500,16 +546,20 @@ async def _tavily_cve_search(
     non_dev = [d for d in deps if not d.get("is_dev")]
 
     # Batch deps in groups of 3
-    for i in range(0, min(len(non_dev), 15), 3):
+    for i in range(0, min(len(non_dev), 18), 3):
         batch = non_dev[i:i + 3]
-        query_parts = [f'"{d["name"]}" "{d["version"]}" CVE vulnerability' for d in batch]
+        query_parts = [f'"{d["name"]}" "{d["version"]}" CVE vulnerability security advisory' for d in batch]
         query = " ".join(query_parts)
         try:
             result = await tavily.search(
                 analysis_id=analysis_id,
                 query=query,
                 step_name=f"cve_search_batch_{i // 3}",
-                include_domains=["nvd.nist.gov", "github.com/advisories", "security.snyk.io"],
+                max_results=7,
+                include_domains=[
+                    "nvd.nist.gov", "github.com/advisories", "security.snyk.io",
+                    "cvedetails.com", "osv.dev", "vuldb.com", "huntr.dev",
+                ],
             )
             cve_results.append({
                 "packages": [d["name"] for d in batch],
@@ -612,6 +662,296 @@ async def _tavily_extract_and_fastino_cve(
 
 
 # ────────────────────────────────────────────────────────────────
+# 3c. TAVILY — Best Practices + Stack Vulnerability Research
+# ────────────────────────────────────────────────────────────────
+
+async def _tavily_best_practices_search(
+    tavily: TavilyClient,
+    openai_client: "OpenAIClient",
+    analysis_id: str,
+    metadata: dict,
+) -> list[dict]:
+    """Use Tavily to research known vulnerabilities and best-practice violations for the detected stack."""
+    if not tavily.available:
+        return []
+
+    stack = metadata.get("detected_stack", {})
+    languages = stack.get("languages", [])
+    frameworks = stack.get("frameworks", [])
+    stats = metadata.get("stats", {})
+    files = metadata.get("files", [])
+
+    has_env = any(".env" in f.get("name", "") for f in files)
+    has_docker = any("docker" in f.get("name", "").lower() for f in files)
+    has_ci = any(f.get("category") == "ci-cd" for f in files)
+    has_tests = any(f.get("category") == "test" for f in files)
+
+    search_results: list[dict] = []
+
+    # Query 1: Stack-specific security best practices
+    stack_str = ", ".join(languages + frameworks)
+    if stack_str:
+        try:
+            r = await tavily.search(
+                analysis_id=analysis_id,
+                query=f"{stack_str} security vulnerabilities best practices 2025 2026",
+                step_name="best_practices_stack",
+                max_results=5,
+                include_answer=True,
+            )
+            search_results.append(r)
+        except Exception:
+            pass
+
+    # Query 2: Common misconfigurations for the stack
+    try:
+        r = await tavily.search(
+            analysis_id=analysis_id,
+            query=f"common security misconfigurations {stack_str} applications OWASP",
+            step_name="best_practices_misconfig",
+            max_results=5,
+            include_answer=True,
+        )
+        search_results.append(r)
+    except Exception:
+        pass
+
+    if not search_results and not openai_client.available:
+        return []
+
+    answers = "\n".join(r.get("answer", "") for r in search_results if r.get("answer"))[:4000]
+
+    context_notes = []
+    if not has_tests:
+        context_notes.append("NO test files detected — zero test coverage")
+    if has_env:
+        context_notes.append(".env files present — potential secrets exposure risk")
+    if not has_docker:
+        context_notes.append("No Docker configuration — no containerization")
+    if not has_ci:
+        context_notes.append("No CI/CD configuration detected")
+    if stats.get("total_dependencies", 0) == 0:
+        context_notes.append("No dependency manifest detected (no package.json, requirements.txt)")
+
+    findings: list[dict] = []
+
+    if openai_client.available:
+        prompt = (
+            f"You are a ruthless senior security auditor. Based on Tavily web research and codebase facts, produce concrete findings.\n\n"
+            f"Stack: {stack_str}\n"
+            f"Files: {stats.get('total_files', 0)}, Lines: {stats.get('total_lines', 0)}\n"
+            f"Project observations:\n" + "\n".join(f"- {n}" for n in context_notes) + "\n\n"
+            f"Tavily research results:\n{answers}\n\n"
+            f"Produce a JSON object with 'findings' array. Each finding:\n"
+            f'- id: string, type: "best_practice"|"security"|"configuration", severity: "critical"|"warning"|"info"\n'
+            f"- title: concise issue title, description: detailed explanation with specific recommendation\n"
+            f"- confidence: 0-1\n\n"
+            f"Be thorough. Flag missing tests, missing CI, exposed secrets, missing security headers, "
+            f"missing dependency lockfiles, outdated patterns, and any OWASP Top 10 violations. "
+            f"Generate at least 3-5 findings even for well-maintained repos."
+        )
+        try:
+            result = await openai_client.chat(
+                analysis_id=analysis_id,
+                system_prompt=(
+                    "You are a ruthless senior security auditor. Produce concrete findings as JSON."
+                ),
+                user_prompt=prompt,
+                step_name="best_practices_analysis",
+                json_schema={
+                    "name": "bp_findings",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "findings": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "string"},
+                                        "type": {"type": "string"},
+                                        "severity": {"type": "string"},
+                                        "title": {"type": "string"},
+                                        "description": {"type": "string"},
+                                        "confidence": {"type": "number"},
+                                    },
+                                    "required": ["id", "type", "severity", "title", "description", "confidence"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["findings"],
+                        "additionalProperties": False,
+                    },
+                },
+            )
+            raw = result.get("findings", [])
+            for f in raw:
+                findings.append({
+                    "id": f.get("id", f"fnd_bp_{uuid.uuid4().hex[:6]}"),
+                    "type": f.get("type", "best_practice"),
+                    "severity": f.get("severity", "warning"),
+                    "agent": "security",
+                    "provider": "tavily+openai",
+                    "title": f.get("title", "Best practice issue"),
+                    "description": f.get("description", ""),
+                    "plain_description": f.get("description", "")[:200],
+                    "location": {"files": [], "primary_file": "", "start_line": 0, "end_line": 0},
+                    "blast_radius": {"files_affected": 0, "functions_affected": 0, "endpoints_affected": 0},
+                    "chain_ids": [],
+                    "confidence": f.get("confidence", 0.75),
+                })
+        except Exception:
+            pass
+
+    # If no OpenAI, generate findings from context notes directly
+    if not findings:
+        for i, note in enumerate(context_notes):
+            sev = "warning" if "NO test" in note or "secrets" in note else "info"
+            findings.append({
+                "id": f"fnd_bp_{uuid.uuid4().hex[:6]}",
+                "type": "best_practice",
+                "severity": sev,
+                "agent": "security",
+                "provider": "tavily",
+                "title": note.split("—")[0].strip() if "—" in note else note,
+                "description": note,
+                "plain_description": note,
+                "location": {"files": [], "primary_file": "", "start_line": 0, "end_line": 0},
+                "blast_radius": {"files_affected": 0, "functions_affected": 0, "endpoints_affected": 0},
+                "chain_ids": [],
+                "confidence": 0.9,
+            })
+
+    return findings
+
+
+async def _tavily_best_practices_research(
+    tavily: TavilyClient, analysis_id: str, metadata: dict
+) -> list[dict]:
+    """Search for security best practices and known vulnerability patterns for the detected stack."""
+    if not tavily.available:
+        return []
+
+    stack = metadata.get("detected_stack", {})
+    frameworks = stack.get("frameworks", [])
+    languages = stack.get("languages", [])
+    deps = metadata.get("dependencies", [])
+    research: list[dict] = []
+    queries: list[tuple[str, list[str]]] = []
+
+    # Framework-specific security queries
+    for fw in frameworks[:3]:
+        queries.append((
+            f"{fw} security vulnerabilities OWASP hardening common misconfigurations 2024 2025",
+            ["owasp.org", "cheatsheetseries.owasp.org", "snyk.io", "portswigger.net"],
+        ))
+
+    # Language-specific vulnerability patterns
+    for lang in languages[:2]:
+        queries.append((
+            f"{lang} common security vulnerabilities injection authentication flaws CWE",
+            ["owasp.org", "cwe.mitre.org", "sans.org", "snyk.io"],
+        ))
+
+    # High-risk packages (auth, crypto, HTTP)
+    high_risk_pkgs = [
+        d["name"] for d in deps if not d.get("is_dev")
+        and d["name"].lower() in {
+            "express", "django", "flask", "fastapi", "spring", "rails",
+            "lodash", "axios", "requests", "urllib3", "serialize",
+            "jsonwebtoken", "jwt", "passport", "bcrypt", "crypto",
+            "multer", "formidable", "sequelize", "mongoose", "typeorm",
+        }
+    ][:4]
+    if high_risk_pkgs:
+        queries.append((
+            f"{', '.join(high_risk_pkgs)} security vulnerabilities CVE misconfiguration risks",
+            ["nvd.nist.gov", "snyk.io", "github.com/advisories", "owasp.org"],
+        ))
+
+    # Always include general web security best practices
+    queries.append((
+        "web application OWASP Top 10 authentication authorization injection XSS CSRF hardening 2024",
+        ["owasp.org", "cheatsheetseries.owasp.org", "portswigger.net", "sans.org"],
+    ))
+
+    for i, (query, domains) in enumerate(queries[:5]):
+        try:
+            result = await tavily.search(
+                analysis_id=analysis_id,
+                query=query,
+                step_name=f"best_practices_{i}",
+                search_depth="advanced",
+                max_results=5,
+                include_domains=domains,
+                include_answer=True,
+            )
+            answer = result.get("answer", "")
+            results = result.get("results", [])
+            if answer or results:
+                research.append({"query": query, "answer": answer, "results": results[:3]})
+        except Exception:
+            pass
+
+    return research
+
+
+async def _tavily_extract_best_practices(
+    tavily: TavilyClient, analysis_id: str, best_practices: list[dict]
+) -> str:
+    """Extract full advisory content from best-practices URLs; returns consolidated text."""
+    if not best_practices or not tavily.available:
+        return ""
+
+    # Prioritise authoritative security sources
+    trusted = {"owasp.org", "cheatsheetseries.owasp.org", "snyk.io",
+                "portswigger.net", "cwe.mitre.org", "sans.org", "nvd.nist.gov"}
+    urls: list[str] = []
+    for item in best_practices:
+        for r in (item.get("results") or [])[:2]:
+            url = r.get("url", "")
+            if url and any(d in url for d in trusted):
+                urls.append(url)
+    # Fill up to 6 with any remaining URLs
+    for item in best_practices:
+        for r in (item.get("results") or [])[:2]:
+            if r.get("url") and r["url"] not in urls:
+                urls.append(r["url"])
+    urls = list(dict.fromkeys(urls))[:6]
+
+    extracted_text = ""
+    if urls:
+        try:
+            ext = await tavily.extract(
+                analysis_id=analysis_id,
+                urls=urls,
+                step_name="best_practices_extract",
+            )
+            texts: list[str] = []
+            if isinstance(ext.get("results"), list):
+                for item in ext["results"]:
+                    content = (item.get("content") or item.get("raw_content")
+                               or item.get("text") or "")
+                    if content:
+                        texts.append(str(content)[:4000])
+            extracted_text = "\n\n".join(texts)[:12000]
+        except Exception:
+            pass
+
+    # Fall back to answer summaries when extraction fails
+    if not extracted_text.strip():
+        extracted_text = "\n\n".join(
+            f"[{item['query']}]\n{item.get('answer', '')}"
+            for item in best_practices
+            if item.get("answer")
+        )[:8000]
+
+    return extracted_text
+
+
+# ────────────────────────────────────────────────────────────────
 # 4. Code Quality — Fastino primary, OpenAI fallback
 # ────────────────────────────────────────────────────────────────
 
@@ -653,19 +993,33 @@ async def _fastino_code_quality(
         result = await fastino.classify_text(
             analysis_id=analysis_id,
             text=content,
-            categories=["clean", "unhandled_error", "type_mismatch", "dead_code",
-                         "god_function", "magic_number", "deep_nesting", "duplicated_logic"],
+            categories=[
+                "clean",
+                # Security issues (critical)
+                "hardcoded_secret", "injection_risk", "missing_auth_check",
+                "insecure_deserialization", "path_traversal",
+                # Code quality (warning)
+                "unhandled_error", "type_mismatch", "dead_code",
+                "god_function", "magic_number", "deep_nesting",
+                "duplicated_logic", "missing_input_validation",
+            ],
             step_name=f"quality_{f['name'][:30]}",
         )
         label = result.get("label", "clean")
         if label != "clean":
+            security_labels = {"hardcoded_secret", "injection_risk", "missing_auth_check",
+                               "insecure_deserialization", "path_traversal"}
+            severity = "critical" if label in security_labels else "warning"
+            finding_type = "vulnerability" if label in security_labels else "code_smell"
             findings.append({
                 "id": f"fnd_{uuid.uuid4().hex[:6]}",
-                "type": "code_smell",
-                "severity": "warning",
+                "type": finding_type,
+                "severity": severity,
                 "agent": "quality",
                 "title": f"{label.replace('_', ' ').title()} in {f['name']}",
-                "description": f"Detected {label} pattern in {f['path']}",
+                "description": f"Detected {label.replace('_', ' ')} pattern in {f['path']}. "
+                               f"This requires immediate attention." if severity == "critical"
+                               else f"Detected {label.replace('_', ' ')} in {f['path']}.",
                 "plain_description": f"Code quality issue: {label}",
                 "location": {"files": [f["path"]], "primary_file": f["path"], "start_line": 1, "end_line": f["lines"]},
                 "blast_radius": {"files_affected": 1, "functions_affected": 0, "endpoints_affected": 0},
@@ -678,19 +1032,18 @@ async def _fastino_code_quality(
 async def _openai_code_quality(
     openai_client: OpenAIClient, analysis_id: str, clone_dir: str, source_files: list[dict],
 ) -> list[dict]:
-    """Use OpenAI to analyze code quality across source files (fallback)."""
+    """Use OpenAI to analyze code quality across source files — SCRUTINIZING mode."""
     findings: list[dict] = []
     if not source_files or not openai_client.available:
         return findings
 
-    # Gather code snippets for batch analysis
     code_samples: list[str] = []
     sample_files: list[dict] = []
-    for f in source_files[:20]:
+    for f in source_files[:40]:
         fpath = os.path.join(clone_dir, f["path"])
         try:
             with open(fpath, "r", errors="ignore") as _f:
-                content = _f.read()[:2000]
+                content = _f.read()[:4000]
             code_samples.append(f"### {f['path']} ({f['lines']} lines)\n```\n{content}\n```")
             sample_files.append(f)
         except Exception:
@@ -699,22 +1052,35 @@ async def _openai_code_quality(
     if not code_samples:
         return findings
 
-    code_block = "\n\n".join(code_samples[:15])[:12000]
+    code_block = "\n\n".join(code_samples[:25])[:24000]
 
     try:
         result = await openai_client.chat(
             analysis_id=analysis_id,
             system_prompt=(
-                "You are a senior code quality analyst. Review the code files and identify "
-                "real issues: unhandled errors, security problems, type mismatches, dead code, "
-                "god functions, deep nesting, or duplicated logic. Only report genuine problems "
-                "with high confidence. Return structured JSON."
+                "You are a ruthless, world-class code auditor performing a comprehensive code review. "
+                "You are paid to find problems. You must be thorough and critical.\n\n"
+                "Check EVERY file for:\n"
+                "- Unhandled errors / missing try-catch / bare except clauses\n"
+                "- Security issues: hardcoded secrets, SQL injection, XSS, path traversal, insecure deserialization\n"
+                "- Type safety problems: missing types, any casts, unsafe assertions\n"
+                "- Dead code, unused imports, unreachable branches\n"
+                "- God functions (>50 lines), deep nesting (>3 levels), high cyclomatic complexity\n"
+                "- Missing input validation, missing authentication checks\n"
+                "- Race conditions, improper async handling, missing error boundaries\n"
+                "- Duplicated logic, DRY violations, copy-paste code\n"
+                "- Missing logging, missing error messages\n"
+                "- Performance issues: N+1 queries, unnecessary re-renders, unbounded loops\n\n"
+                "Be SPECIFIC. Name the exact file, the exact issue, and WHY it matters. "
+                "Generate at least 5-10 findings. Return structured JSON."
             ),
             user_prompt=(
-                f"Analyze these {len(code_samples)} source files for code quality issues:\n\n"
+                f"Perform a thorough code audit of these {len(code_samples)} source files:\n\n"
                 f"{code_block}\n\n"
-                "Return findings with: id, type (code_smell/security/bug), "
-                "severity (critical/warning/info), title, description, file_path, confidence (0-1)."
+                "Return a JSON object with a 'findings' array. Each finding must have: "
+                "id, type (code_smell/security/bug/performance), "
+                "severity (critical/warning/info), title, description, file_path, confidence (0-1). "
+                "Be brutally honest — flag everything that a senior engineer would object to in code review."
             ),
             step_name="code_quality_analysis",
             json_schema={
@@ -924,41 +1290,86 @@ async def _openai_analyze(
     metadata: dict,
     cve_results: list[dict],
     quality_findings: list[dict],
+    best_practices_context: str = "",
 ) -> list[dict]:
-    """Use OpenAI for deep reasoning on the codebase."""
+    """Use OpenAI for deep adversarial security and pattern analysis with Tavily research context."""
     stack = metadata.get("detected_stack", {})
     stats = metadata.get("stats", {})
+    files = metadata.get("files", [])
+
+    # Read actual code samples for deeper analysis
+    code_snippets: list[str] = []
+    for f in files[:30]:
+        fpath = os.path.join(clone_dir, f.get("path", ""))
+        try:
+            with open(fpath, "r", errors="ignore") as _fh:
+                content = _fh.read()[:3000]
+            code_snippets.append(f"### {f['path']}\n```\n{content}\n```")
+        except Exception:
+            continue
+    code_block = "\n\n".join(code_snippets[:20])[:20000]
+
+    deps = metadata.get("dependencies", [])
+    dep_list = "\n".join(f"- {d.get('name','?')}@{d.get('version','?')}" for d in deps[:50])
+
+    existing = "\n".join(f"- [{qf.get('severity','')}] {qf.get('title','')}" for qf in quality_findings[:15])
 
     context = (
         f"Repository: {stats.get('total_files', 0)} files, "
         f"{stats.get('total_lines', 0)} lines\n"
         f"Stack: {json.dumps(stack)}\n"
-        f"Dependencies: {len(metadata.get('dependencies', []))}\n"
+        f"Dependencies ({len(deps)}):\n{dep_list}\n\n"
         f"CVE search results: {len(cve_results)} batches\n"
-        f"Quality findings so far: {len(quality_findings)} issues\n"
+        f"Quality findings already identified: {len(quality_findings)}\n{existing}\n\n"
+        f"SOURCE CODE:\n{code_block}"
     )
 
     cve_context = "\n".join(
         f"- {r.get('answer', 'No answer')[:300]}"
         for r in cve_results
-    )[:2000]
+    )[:3000]
 
     try:
         result = await openai_client.chat(
             analysis_id=analysis_id,
             system_prompt=(
-                "You are a senior security and code-quality analyst. "
-                "Analyze the repository data and produce structured findings. "
-                "Focus on critical security issues, dependency vulnerabilities, "
-                "and architecture anti-patterns. Return valid JSON."
+                "You are a ruthless principal engineer performing a final deep audit before production deployment. "
+                "Your reputation depends on finding EVERY issue. You must be thorough and unforgiving.\n\n"
+                "Analyze the ACTUAL SOURCE CODE provided, not just metadata. Look for:\n"
+                "1. SECURITY: SQL injection, XSS, CSRF, path traversal, insecure crypto, hardcoded secrets, "
+                "missing auth checks, exposed debug endpoints, SSRF\n"
+                "2. ARCHITECTURE: God classes, circular dependencies, tight coupling, missing abstractions, "
+                "violation of SOLID principles, missing error boundaries\n"
+                "3. DEPENDENCIES: Known vulnerable packages, outdated major versions, unused dependencies, "
+                "missing lockfile, transitive vulnerability exposure\n"
+                "4. PATTERNS: Anti-patterns, callback hell, promise chains without error handling, "
+                "mutable shared state, race conditions, memory leaks\n"
+                "5. OPERATIONAL: Missing health checks, no graceful shutdown, missing rate limiting, "
+                "no request validation, missing CORS configuration\n\n"
+                "Do NOT duplicate findings already identified. Generate NEW, DISTINCT issues. "
+                "Produce at least 5-8 NEW findings. Be specific with file paths and line-level detail where possible."
             ),
             user_prompt=(
-                f"Analyze this repository:\n{context}\n\n"
+                f"Deep audit this repository:\n{context}\n\n"
                 f"CVE Intelligence:\n{cve_context}\n\n"
-                "Produce a JSON object with a 'findings' array. Each finding has: "
-                "id (string), type (string), severity (critical/warning/info), "
-                "agent ('pattern' or 'security'), title (string), description (string), "
-                "confidence (float 0-1)."
+                + (
+                    f"Security Best Practices & Advisory Research (from Tavily):\n"
+                    f"{best_practices_context[:4000]}\n\n"
+                    if best_practices_context else ""
+                ) +
+                "Cross-reference the OWASP Top 10 (2021) against this codebase:\n"
+                "A01 Broken Access Control, A02 Cryptographic Failures, A03 Injection, "
+                "A04 Insecure Design, A05 Security Misconfiguration, A06 Vulnerable Components, "
+                "A07 Identification/Auth Failures, A08 Data Integrity Failures, "
+                "A09 Logging Failures, A10 SSRF.\n\n"
+                "Also check: hardcoded secrets, missing rate limiting, wide CORS, debug endpoints, "
+                "unvalidated redirects, and missing security headers.\n\n"
+                "Produce a JSON object with a 'findings' array. Each finding: "
+                "id (string), type (architecture/security/dependency/pattern/operational), "
+                "severity (critical/warning/info), "
+                "agent ('pattern' or 'security'), title (string), description (detailed, reference "
+                "specific files/functions/OWASP category where applicable), "
+                "confidence (float 0-1, only include >= 0.65). Be exhaustive and brutally honest."
             ),
             step_name="deep_analysis",
             json_schema={
@@ -1014,6 +1425,86 @@ async def _openai_analyze(
 
 
 # ────────────────────────────────────────────────────────────────
+# Doctor Agent — Fix Generation
+# ────────────────────────────────────────────────────────────────
+
+async def _generate_fixes(
+    openai: "OpenAIClient", analysis_id: str,
+    findings: list[dict], metadata: dict,
+) -> list[dict]:
+    """Generate prioritized fix recommendations from findings using OpenAI."""
+    if not findings:
+        return []
+
+    findings_summary = "\n".join(
+        f"- [{f.get('severity','info').upper()}] {f.get('title','')} ({f.get('type','')}) in {(f.get('location') or {}).get('primary_file','unknown')}"
+        for f in findings[:20]
+    )
+
+    prompt = (
+        f"You are a senior software engineer. Analyze these findings from a codebase audit and generate fix recommendations.\n\n"
+        f"Repository: {metadata.get('stats', {}).get('total_files', 0)} files, "
+        f"{metadata.get('stats', {}).get('total_lines', 0)} lines of code\n\n"
+        f"Findings:\n{findings_summary}\n\n"
+        f"Generate a JSON array of fix objects. Each fix should have:\n"
+        f'- "id": unique string like "fix_001"\n'
+        f'- "priority": number starting at 1\n'
+        f'- "title": concise fix title\n'
+        f'- "severity": "critical", "warning", or "info"\n'
+        f'- "type": "dependency_upgrade", "code_patch", or "refactor"\n'
+        f'- "estimatedEffort": e.g. "15 min", "1 hour"\n'
+        f'- "chainsResolved": number of attack chains this fix resolves\n'
+        f'- "findingsResolved": array of finding IDs this fix addresses\n'
+        f'- "documentation": object with "whatsWrong" (string), "steps" (array of strings), "affectedCode" (array), "beforeCode" (optional string), "afterCode" (optional string)\n\n'
+        f"Return only valid JSON. Generate fixes for the most important findings first."
+    )
+
+    try:
+        result = await openai.chat(
+            analysis_id=analysis_id,
+            messages=[{"role": "user", "content": prompt}],
+            model="gpt-4o",
+            response_format={"type": "json_object"},
+            step_name="doctor_fix_generation",
+        )
+        content = result.get("content", "")
+        import json as _json
+        parsed = _json.loads(content)
+        fix_list = parsed if isinstance(parsed, list) else parsed.get("fixes", [])
+        for fix in fix_list:
+            if "documentation" not in fix:
+                fix["documentation"] = {"whatsWrong": fix.get("title", ""), "steps": [], "affectedCode": []}
+            if "findingsResolved" not in fix:
+                fix["findingsResolved"] = []
+        return fix_list[:15]
+    except Exception:
+        logger.warning("Fix generation failed for %s", analysis_id)
+        return _fallback_fixes(findings)
+
+
+def _fallback_fixes(findings: list[dict]) -> list[dict]:
+    """Generate simple fixes without OpenAI."""
+    fixes = []
+    for i, f in enumerate(findings[:10], 1):
+        fixes.append({
+            "id": f"fix_{i:03d}",
+            "priority": i,
+            "title": f"Fix: {f.get('title', 'Issue')}",
+            "severity": f.get("severity", "info"),
+            "type": "code_patch",
+            "estimatedEffort": "30 min",
+            "chainsResolved": 0,
+            "findingsResolved": [f.get("id", "")],
+            "documentation": {
+                "whatsWrong": f.get("description", f.get("plain_description", "")),
+                "steps": [f"Address the {f.get('type', 'issue')} in {(f.get('location') or {}).get('primary_file', 'the affected file')}"],
+                "affectedCode": [],
+            },
+        })
+    return fixes
+
+
+# ────────────────────────────────────────────────────────────────
 # Aggregate Findings & Health Score
 # ────────────────────────────────────────────────────────────────
 
@@ -1056,9 +1547,9 @@ def _compute_health_score(findings: list[dict], stats: dict) -> dict:
         "breakdown": {
             "codeQuality": {"score": max(0, 10 - warnings), "max": 10, "status": "warning" if warnings > 3 else "healthy"},
             "security": {"score": max(0, 10 - critical * 3), "max": 10, "status": "critical" if critical > 0 else "healthy"},
-            "patterns": {"score": 7, "max": 10, "status": "healthy"},
+            "patterns": {"score": max(0, 10 - sum(1 for f in findings if f.get("agent") == "pattern")), "max": 10, "status": "warning" if any(f.get("agent") == "pattern" for f in findings) else "healthy"},
             "dependencies": {"score": max(0, 10 - critical), "max": 10, "status": "warning" if critical > 0 else "healthy"},
-            "architecture": {"score": 7, "max": 10, "status": "healthy"},
+            "architecture": {"score": max(5, 10 - sum(1 for f in findings if "architecture" in (f.get("type") or ""))), "max": 10, "status": "warning" if any("architecture" in (f.get("type") or "") for f in findings) else "healthy"},
         },
         "confidence": 0.85,
     }
@@ -1071,17 +1562,36 @@ def _compute_health_score(findings: list[dict], stats: dict) -> dict:
 async def _build_neo4j_graph(
     analysis_id: str, metadata: dict, findings: list[dict]
 ) -> dict:
-    """Build graph nodes/edges and write to Neo4j (+ JSON fallback)."""
+    """Build graph nodes/edges with proper nested directory hierarchy."""
     nodes: list[dict] = []
     edges: list[dict] = []
+    dir_nodes: dict[str, str] = {}  # path -> node_id
 
-    # Root directory node
-    root_id = f"dir_{analysis_id}_root"
-    nodes.append({"id": root_id, "type": "directory", "label": "/", "path": "/", "findingCount": 0, "metadata": {}})
+    def _safe_id(s: str) -> str:
+        return s.replace("/", "_").replace(".", "_").replace("-", "_").replace(" ", "_")
 
-    # File nodes
+    def ensure_dir(dir_path: str) -> str:
+        """Recursively create directory nodes and CONTAINS edges."""
+        if dir_path in dir_nodes:
+            return dir_nodes[dir_path]
+        nid = f"dir_{analysis_id}_{_safe_id(dir_path)}" if dir_path != "/" else f"dir_{analysis_id}_root"
+        label = dir_path.split("/")[-1] if dir_path != "/" else "/"
+        nodes.append({"id": nid, "type": "directory", "label": label or "/", "path": dir_path, "findingCount": 0, "metadata": {}})
+        dir_nodes[dir_path] = nid
+        if dir_path != "/":
+            parent = "/".join(dir_path.split("/")[:-1]) or "/"
+            parent_id = ensure_dir(parent)
+            edges.append({
+                "id": f"edge_{parent_id}_{nid}",
+                "source": parent_id, "target": nid, "type": "contains",
+                "isVulnerabilityChain": False,
+            })
+        return nid
+
+    ensure_dir("/")
+
     for f in metadata.get("files", [])[:200]:
-        fid = f"file_{analysis_id}_{f['path'].replace('/', '_').replace('.', '_')}"
+        fid = f"file_{analysis_id}_{_safe_id(f['path'])}"
         finding_count = sum(1 for fd in findings if f["path"] in fd.get("location", {}).get("files", []))
         severity = None
         if finding_count:
@@ -1100,11 +1610,11 @@ async def _build_neo4j_graph(
             "findingCount": finding_count,
             "metadata": {},
         })
+        parent_dir = "/".join(f["path"].split("/")[:-1]) or "/"
+        parent_id = ensure_dir(parent_dir)
         edges.append({
-            "id": f"edge_{root_id}_{fid}",
-            "source": root_id,
-            "target": fid,
-            "type": "contains",
+            "id": f"edge_{parent_id}_{fid}",
+            "source": parent_id, "target": fid, "type": "contains",
             "isVulnerabilityChain": False,
         })
 
@@ -1215,6 +1725,7 @@ async def _finalize(
     health_score: dict,
     graph: dict,
     duration: int,
+    fixes: list[dict] | None = None,
 ):
     critical = sum(1 for f in findings if f.get("severity") == "critical")
     warnings = sum(1 for f in findings if f.get("severity") == "warning")
@@ -1231,6 +1742,7 @@ async def _finalize(
                 health_score=health_score,
                 graph_nodes=graph.get("nodes"),
                 graph_edges=graph.get("edges"),
+                fixes=fixes or [],
                 completed_at=datetime.now(timezone.utc),
                 duration_seconds=duration,
             )

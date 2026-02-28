@@ -37,7 +37,7 @@ const statusColor = (s: string) => s === "ok" ? "#22C55E" : s === "skipped" ? "#
 export function Header() {
   const { result, status, analysisId } = useAnalysisStore();
   const isActive = !!analysisId;
-  const repoName = result?.repoName;
+  const repoName = result?.repoName || result?.repo_name || null;
   const isRunning = ["queued", "cloning", "mapping", "analyzing", "completing"].includes(status);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -118,7 +118,7 @@ export function Header() {
           filter: "drop-shadow(0 0 10px rgba(147,197,253,0.25))",
         }}
       >
-        VIBE CHECK
+        AUTONOMIX
       </Link>
 
       {/* Center — active analysis chip */}

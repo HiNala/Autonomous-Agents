@@ -9,11 +9,42 @@ function ensureRegistered() {
 
 const NODE_TYPE_COLOR: Record<string, string> = {
   file:      "#A1A1AA",
-  directory: "#52525B",
+  directory: "#6366F1",
   function:  "#A78BFA",
   class:     "#C084FC",
-  package:   "#60A5FA",
-  endpoint:  "#34D399",
+  package:   "#3B82F6",
+  endpoint:  "#10B981",
+};
+
+const CATEGORY_COLOR: Record<string, string> = {
+  source:  "#818CF8",
+  test:    "#22D3EE",
+  config:  "#FBBF24",
+  docs:    "#60A5FA",
+  build:   "#F97316",
+  asset:   "#A78BFA",
+  data:    "#2DD4BF",
+  "ci-cd": "#F472B6",
+  unknown: "#71717A",
+};
+
+// Language-specific colors for source files
+const LANGUAGE_COLOR: Record<string, string> = {
+  Python:     "#3B82F6",   // blue
+  JavaScript: "#FBBF24",   // amber/yellow
+  TypeScript: "#60A5FA",   // sky blue
+  Java:       "#F97316",   // orange
+  Go:         "#06B6D4",   // cyan
+  Rust:       "#F43F5E",   // rose
+  Ruby:       "#EC4899",   // pink
+  PHP:        "#A78BFA",   // violet
+  "C#":       "#10B981",   // emerald
+  "C++":      "#6366F1",   // indigo
+  C:          "#8B5CF6",   // purple
+  Swift:      "#FB923C",   // orange-400
+  Kotlin:     "#7C3AED",   // purple-700
+  Vue:        "#34D399",   // emerald-400
+  Svelte:     "#F87171",   // red-400
 };
 
 const SEVERITY_BORDER: Record<string, string> = {
@@ -21,49 +52,45 @@ const SEVERITY_BORDER: Record<string, string> = {
   warning:  "#F59E0B",
 };
 
-const SEVERITY_SHADOW: Record<string, { color: string; blur: number; opacity: number }> = {
-  critical: { color: "#EF4444", blur: 12, opacity: 0.6 },
-  warning:  { color: "#F59E0B", blur: 8,  opacity: 0.4 },
+const SEVERITY_GLOW: Record<string, string> = {
+  critical: "rgba(239,68,68,0.35)",
+  warning:  "rgba(245,158,11,0.25)",
 };
 
-function nodeSize(findingCount: number): number {
-  if (findingCount >= 3) return 28;
-  if (findingCount >= 1) return 20;
-  return 13;
+function nodeSize(findingCount: number, type?: string): number {
+  if (type === "directory") return 36;
+  if (type === "package") return 38;
+  if (findingCount >= 3) return 40;
+  if (findingCount >= 1) return 30;
+  return 22;
 }
 
 function layoutForView(view: GraphViewMode): cytoscape.LayoutOptions {
   if (view === "structure") {
     return {
-      name: "breadthfirst",
-      directed: true,
-      spacingFactor: 1.5,
-      animate: true,
-      animationDuration: 450,
-      fit: true,
-      padding: 36,
-    } as cytoscape.LayoutOptions;
-  }
-  if (view === "dependencies") {
-    return {
       name: "cose",
-      animate: true,
-      animationDuration: 500,
-      randomize: false,
-      idealEdgeLength: 80,
-      nodeRepulsion: 4500,
-      numIter: 2500,
+      animate: false,
       fit: true,
-      padding: 36,
+      padding: 30,
+      nodeRepulsion: () => 8000,
+      idealEdgeLength: () => 70,
+      edgeElasticity: () => 80,
+      gravity: 0.4,
+      randomize: true,
+      numIter: 400,
     } as cytoscape.LayoutOptions;
   }
   return {
     name: "cose",
-    animate: true,
-    animationDuration: 500,
-    randomize: false,
+    animate: false,
     fit: true,
-    padding: 36,
+    padding: 30,
+    nodeRepulsion: () => 8000,
+    idealEdgeLength: () => 70,
+    edgeElasticity: () => 60,
+    gravity: 0.4,
+    randomize: true,
+    numIter: 400,
   } as cytoscape.LayoutOptions;
 }
 
@@ -129,12 +156,22 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
           style: {
             "background-color": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
-              if (sev === "critical") return "#450A0A";
-              if (sev === "warning")  return "#431407";
-              return NODE_TYPE_COLOR[ele.data("type") as string] ?? "#A1A1AA";
+              if (sev === "critical") return "#EF4444";
+              if (sev === "warning")  return "#F59E0B";
+              const type = ele.data("type") as string;
+              if (type === "file") {
+                const cat = ele.data("category") as string;
+                const lang = ele.data("language") as string;
+                // Source files: use language-specific color for richer differentiation
+                if (cat === "source" && lang && LANGUAGE_COLOR[lang]) {
+                  return LANGUAGE_COLOR[lang];
+                }
+                return CATEGORY_COLOR[cat] ?? CATEGORY_COLOR.unknown;
+              }
+              return NODE_TYPE_COLOR[type] ?? "#A1A1AA";
             },
-            "width":  (ele: cytoscape.NodeSingular) => nodeSize(Number(ele.data("findingCount") ?? 0)),
-            "height": (ele: cytoscape.NodeSingular) => nodeSize(Number(ele.data("findingCount") ?? 0)),
+            "width":  (ele: cytoscape.NodeSingular) => nodeSize(Number(ele.data("findingCount") ?? 0), ele.data("type") as string),
+            "height": (ele: cytoscape.NodeSingular) => nodeSize(Number(ele.data("findingCount") ?? 0), ele.data("type") as string),
             "border-width": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
               if (sev === "critical") return 2.5;
@@ -147,30 +184,24 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
             },
             "border-opacity": 0.7,
             "label": "data(label)",
-            "font-size": 9,
+            "font-size": 11,
             "font-family": "Martian Mono, JetBrains Mono, monospace",
-            "color": "#71717A",
-            "text-opacity": 0,
+            "color": "#D4D4D8",
+            "text-opacity": 0.85,
             "text-valign": "bottom",
             "text-halign": "center",
-            "text-margin-y": 5,
-            "text-max-width": "80px",
+            "text-margin-y": 6,
+            "text-max-width": "100px",
             "text-wrap": "ellipsis",
-            "shadow-blur": (ele: cytoscape.NodeSingular) => {
+            "overlay-color": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
-              return SEVERITY_SHADOW[sev]?.blur ?? 0;
+              return SEVERITY_GLOW[sev] ?? "transparent";
             },
-            "shadow-color": (ele: cytoscape.NodeSingular) => {
+            "overlay-opacity": (ele: cytoscape.NodeSingular) => {
               const sev = ele.data("severity") as string;
-              return SEVERITY_SHADOW[sev]?.color ?? "#000000";
+              return sev === "critical" ? 0.25 : sev === "warning" ? 0.15 : 0;
             },
-            "shadow-opacity": (ele: cytoscape.NodeSingular) => {
-              const sev = ele.data("severity") as string;
-              return SEVERITY_SHADOW[sev]?.opacity ?? 0;
-            },
-            "shadow-offset-x": 0,
-            "shadow-offset-y": 0,
-            "transition-property": "background-color, border-color, shadow-blur, shadow-opacity, width, height, border-width",
+            "transition-property": "background-color, border-color, width, height, border-width, overlay-opacity",
             "transition-duration": 250,
           },
         },
@@ -203,13 +234,20 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
           },
         },
 
-        // Directory nodes — rectangle
+        // Directory nodes — rectangle with label always visible
         {
           selector: "node[type='directory']",
           style: {
             "shape": "round-rectangle",
-            "background-color": "#27272A",
-            "background-opacity": 0.6,
+            "background-color": "#4F46E5",
+            "background-opacity": 0.9,
+            "border-color": "#818CF8",
+            "border-width": 2,
+            "text-opacity": 1,
+            "color": "#E0E7FF",
+            "font-size": 13,
+            "font-weight": "bold" as unknown as number,
+            "text-max-width": "120px",
           },
         },
 
@@ -220,9 +258,8 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
             "border-color": "#3B82F6",
             "border-width": 3,
             "border-opacity": 1,
-            "shadow-blur": 20,
-            "shadow-color": "#3B82F6",
-            "shadow-opacity": 0.7,
+            "overlay-color": "#3B82F6",
+            "overlay-opacity": 0.2,
             "text-opacity": 1,
             "color": "#93C5FD",
             "z-index": 1000,
@@ -234,10 +271,9 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
           selector: "node.hover",
           style: {
             "text-opacity": 1,
-            "color": "#F4F4F5",
-            "font-size": 10,
-            "shadow-blur": 16,
-            "shadow-opacity": 0.8,
+            "color": "#FAFAFA",
+            "font-size": 13,
+            "overlay-opacity": 0.2,
             "z-index": 999,
           },
         },
@@ -249,7 +285,7 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
             "background-opacity": 0.15,
             "border-opacity": 0.1,
             "text-opacity": 0,
-            "shadow-opacity": 0,
+            "overlay-opacity": 0,
             "transition-duration": 300,
           },
         },
@@ -260,9 +296,8 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
           style: {
             "border-color": "#EF4444",
             "border-width": 3,
-            "shadow-blur": 24,
-            "shadow-color": "#EF4444",
-            "shadow-opacity": 0.9,
+            "overlay-color": "#EF4444",
+            "overlay-opacity": 0.3,
             "text-opacity": 1,
             "color": "#FCA5A5",
             "z-index": 500,
@@ -272,27 +307,27 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
         // Blast radius hops
         {
           selector: "node.blast-hop-1",
-          style: { "border-color": "#F59E0B", "border-width": 2.5, "shadow-blur": 16, "shadow-color": "#F59E0B", "shadow-opacity": 0.7 },
+          style: { "border-color": "#F59E0B", "border-width": 2.5, "overlay-color": "#F59E0B", "overlay-opacity": 0.2 },
         },
         {
           selector: "node.blast-hop-2",
-          style: { "border-color": "#FCD34D", "border-width": 2, "shadow-blur": 10, "shadow-color": "#FCD34D", "shadow-opacity": 0.5 },
+          style: { "border-color": "#FCD34D", "border-width": 2, "overlay-color": "#FCD34D", "overlay-opacity": 0.15 },
         },
         {
           selector: "node.blast-hop-3",
-          style: { "border-color": "#FDE68A", "border-width": 1.5, "shadow-blur": 6, "shadow-color": "#FDE68A", "shadow-opacity": 0.3 },
+          style: { "border-color": "#FDE68A", "border-width": 1.5, "overlay-color": "#FDE68A", "overlay-opacity": 0.1 },
         },
 
-        // Base edge
+        // Base edge (contains relationship)
         {
           selector: "edge",
           style: {
-            "width": 1,
-            "line-color": "rgba(255,255,255,0.05)",
-            "target-arrow-color": "rgba(255,255,255,0.05)",
+            "width": 1.5,
+            "line-color": "rgba(255,255,255,0.18)",
+            "target-arrow-color": "rgba(255,255,255,0.18)",
             "target-arrow-shape": "none",
             "curve-style": "bezier",
-            "opacity": 0.5,
+            "opacity": 0.7,
             "transition-property": "line-color, width, opacity",
             "transition-duration": 250,
           },
@@ -334,9 +369,8 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
             "opacity": 1,
             "line-style": "solid",
             "z-index": 900,
-            "shadow-blur": 8,
-            "shadow-color": "#EF4444",
-            "shadow-opacity": 0.5,
+            "overlay-color": "#EF4444",
+            "overlay-opacity": 0.15,
           },
         },
 
@@ -366,7 +400,7 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
       container: containerRef.current,
       style,
       layout: { name: "preset" },
-      wheelSensitivity: 0.15,
+      wheelSensitivity: 1,
       minZoom: 0.1,
       maxZoom: 5,
     });
@@ -437,6 +471,7 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
           findingCount: n.findingCount,
           path: n.path,
           category: n.category,
+          language: n.language,
         },
       })));
     }
@@ -461,7 +496,9 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
     }
 
     if (newNodes.length > 0 || newEdges.length > 0) {
-      cy.layout(layoutForView(view)).run();
+      const layout = cy.layout(layoutForView(view));
+      layout.run();
+      layout.on("layoutstop", () => cy.fit(undefined, 20));
     }
   }, [nodes, edges, view]);
 
@@ -509,7 +546,7 @@ export function GraphCanvas({ nodes, edges, view, selectedNodeId, highlightedCha
   }, [highlightedChainId]);
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative", background: "var(--bg-primary)" }}>
+    <div style={{ position: "absolute", inset: 0, background: "var(--bg-surface)" }}>
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
       {/* Tooltip */}

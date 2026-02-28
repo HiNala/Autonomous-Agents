@@ -30,10 +30,14 @@ export function useAnalysisWebSocket(analysisId: string | null) {
 
   const handleMessage = useCallback((msg: WSMessage) => {
     switch (msg.type) {
-      case "status":
+      case "status": {
         store.updateAgentStatus(msg.agent, { name: msg.agent, status: msg.status, progress: msg.progress, message: msg.message });
-        store.setStatus(msg.status === "complete" ? "completed" : "analyzing");
+        const cur = useAnalysisStore.getState().status;
+        if (cur !== "completed" && cur !== "failed") {
+          store.setStatus(msg.status === "complete" ? "completed" : "analyzing");
+        }
         break;
+      }
       case "graph_node": store.addGraphNode(msg.node); break;
       case "graph_edge": store.addGraphEdge(msg.edge); break;
       case "finding":    store.addLiveFinding(msg.finding); break;
@@ -43,9 +47,11 @@ export function useAnalysisWebSocket(analysisId: string | null) {
       case "complete":
         store.setComplete(msg.healthScore, msg.findingsSummary, msg.duration);
         if (analysisId) {
+          api.getAnalysis(analysisId).then((r) => store.setResult(r)).catch(() => null);
           api.getFindings(analysisId).then((r) => store.setFindings(r.items)).catch(() => null);
           api.getFixes(analysisId).then((r) => store.setFixes(r.fixes, r.summary)).catch(() => null);
           api.getChains(analysisId).then((r) => store.setChains(r.chains)).catch(() => null);
+          api.getGraph(analysisId, "structure").then((g) => store.setGraphData(g.nodes, g.edges)).catch(() => null);
         }
         break;
       case "tool_activity":

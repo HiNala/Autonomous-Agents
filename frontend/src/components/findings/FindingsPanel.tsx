@@ -161,7 +161,7 @@ const AGENT_FILTER_LABELS: Record<string, string> = {
 
 export function FindingsPanel() {
   const { findings, result, findingFilters, setFindingFilter } = useAnalysisStore();
-  const [open, setOpen] = useState<Record<Severity, boolean>>({ critical: true, warning: false, info: false });
+  const [open, setOpen] = useState<Record<Severity, boolean>>({ critical: true, warning: true, info: true });
 
   const summary = result?.findings;
   const activeCategory = findingFilters.category;
@@ -328,76 +328,92 @@ export function FindingsPanel() {
         </div>
       )}
 
-      {/* Severity groups */}
-      {SEVERITY_ORDER.map((sev) => {
-        const list = grouped[sev];
-        const count = summary ? summary[sev] : list.length;
-        const isOpen = open[sev];
-        const color = severityColor(sev);
+      {/* Severity groups — 3-column grid for full-width layout */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 0,
+        }}
+      >
+        {SEVERITY_ORDER.map((sev, idx) => {
+          const list = grouped[sev];
+          const count = summary ? summary[sev] : list.length;
+          const isOpen = open[sev];
+          const color = severityColor(sev);
 
-        return (
-          <div key={sev} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-            <button
-              onClick={() => setOpen((o) => ({ ...o, [sev]: !o[sev] }))}
+          return (
+            <div
+              key={sev}
               style={{
-                width: "100%",
+                borderRight: idx < 2 ? "1px solid var(--border-subtle)" : undefined,
                 display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "10px var(--space-4)",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--text-primary)",
-                transition: "background 0.12s ease",
+                flexDirection: "column",
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.02)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
             >
-              <span style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--text-small)", fontWeight: 600 }}>
-                <SeverityIcon severity={sev} />
-                <span style={{ color: "var(--text-secondary)" }}>{LABELS[sev]}</span>
+              <button
+                onClick={() => setOpen((o) => ({ ...o, [sev]: !o[sev] }))}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "10px var(--space-4)",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  cursor: "pointer",
+                  color: "var(--text-primary)",
+                  transition: "background 0.12s ease",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.02)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--text-small)", fontWeight: 600 }}>
+                  <SeverityIcon severity={sev} />
+                  <span style={{ color: "var(--text-secondary)" }}>{LABELS[sev]}</span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-code)",
+                      fontSize: "var(--text-micro)",
+                      color,
+                      background: `${color}15`,
+                      padding: "1px 7px",
+                      borderRadius: "var(--radius-full)",
+                      border: `1px solid ${color}33`,
+                    }}
+                  >
+                    {count}
+                  </span>
+                </span>
                 <span
                   style={{
-                    fontFamily: "var(--font-code)",
-                    fontSize: "var(--text-micro)",
-                    color,
-                    background: `${color}15`,
-                    padding: "1px 7px",
-                    borderRadius: "var(--radius-full)",
-                    border: `1px solid ${color}33`,
+                    color: "var(--text-tertiary)",
+                    fontSize: 11,
+                    transition: "transform 0.2s ease",
+                    transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+                    display: "inline-block",
                   }}
                 >
-                  {count}
+                  ▸
                 </span>
-              </span>
-              <span
-                style={{
-                  color: "var(--text-tertiary)",
-                  fontSize: 11,
-                  transition: "transform 0.2s ease",
-                  transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
-                  display: "inline-block",
-                }}
-              >
-                ▸
-              </span>
-            </button>
+              </button>
 
-            {isOpen && (
-              <div style={{ paddingBottom: "var(--space-2)" }}>
-                {list.length === 0 ? (
-                  <div style={{ padding: "var(--space-3) var(--space-4)", fontSize: "var(--text-small)", color: "var(--text-tertiary)" }}>
-                    {count > 0 ? `${count} findings — load full results` : "No findings · Nice work! ✓"}
-                  </div>
-                ) : (
-                  list.map((f) => <FindingRow key={f.id} finding={f} />)
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+              {isOpen && (
+                <div style={{ flex: 1, overflowY: "auto", maxHeight: 320 }}>
+                  {list.length === 0 ? (
+                    <div style={{ padding: "var(--space-3) var(--space-4)", fontSize: "var(--text-small)", color: "var(--text-tertiary)" }}>
+                      {count > 0 ? `${count} findings — load full results` : "No findings · Nice work! ✓"}
+                    </div>
+                  ) : (
+                    list.map((f) => <FindingRow key={f.id} finding={f} />)
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

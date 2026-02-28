@@ -1,28 +1,28 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: vibecheck-postgres
+    container_name: autonomix-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-vibecheck}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vibecheck_secret}
-      POSTGRES_DB: ${POSTGRES_DB:-vibecheck}
+      POSTGRES_USER: ${POSTGRES_USER:-autonomix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autonomix_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-autonomix}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vibecheck}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autonomix}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   neo4j:
     image: neo4j:5-community
-    container_name: vibecheck-neo4j
+    container_name: autonomix-neo4j
     restart: unless-stopped
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-vibecheck_neo4j}
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-autonomix_neo4j}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
       NEO4J_dbms_security_procedures_allowlist: "apoc.*"
@@ -45,15 +45,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: vibecheck-backend
+    container_name: autonomix-backend
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
-      # Constructed connection URLs (built from individual .env vars)
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vibecheck}:${POSTGRES_PASSWORD:-vibecheck_secret}@postgres:5432/${POSTGRES_DB:-vibecheck}
-      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-vibecheck}:${POSTGRES_PASSWORD:-vibecheck_secret}@postgres:5432/${POSTGRES_DB:-vibecheck}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-autonomix}:${POSTGRES_PASSWORD:-autonomix_secret}@postgres:5432/${POSTGRES_DB:-autonomix}
+      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-autonomix}:${POSTGRES_PASSWORD:-autonomix_secret}@postgres:5432/${POSTGRES_DB:-autonomix}
       # Override Neo4j URI so backend container uses the Docker network name, not localhost
       NEO4J_URI: bolt://neo4j:7687
       # API keys are loaded directly from env_file (.env) — no shell-var override here
@@ -77,7 +76,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: vibecheck-frontend
+    container_name: autonomix-frontend
     restart: unless-stopped
     env_file:
       - path: .env

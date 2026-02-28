@@ -31,7 +31,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         overall = "degraded"
     return HealthResponse(
         status=overall,
-        service="vibecheck-api",
+        service="autonomix-api",
         version="0.1.0",
         database=db_status,
     )

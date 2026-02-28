@@ -58,6 +58,7 @@ interface AnalysisStore {
   setFindings: (findings: Finding[]) => void;
   setFixes: (fixes: Fix[], summary: FixSummary) => void;
   setChains: (chains: VulnerabilityChain[]) => void;
+  setGraphData: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setFindingFilter: (filter: Partial<{ severity?: Severity; agent?: AgentName; category?: string }>) => void;
   setGraphView: (view: GraphViewMode) => void;
   selectNode: (nodeId: string | null) => void;
@@ -112,17 +113,37 @@ export const useAnalysisStore = create<AnalysisStore>((set) => ({
     set((s) => ({
       status: "completed",
       result: s.result
-        ? { ...s.result, status: "completed", healthScore, findings: findingsSummary, timestamps: { ...s.result.timestamps, completedAt: new Date().toISOString(), duration } }
-        : null,
+        ? { ...s.result, status: "completed" as AnalysisStatus, healthScore, findings: findingsSummary, timestamps: { ...s.result.timestamps, completedAt: new Date().toISOString(), duration } }
+        : {
+            analysisId: s.analysisId ?? "",
+            status: "completed" as AnalysisStatus,
+            repoUrl: "",
+            repoName: "",
+            branch: "main",
+            healthScore,
+            findings: findingsSummary,
+            vulnerabilityChains: 0,
+            fixesGenerated: 0,
+            timestamps: { startedAt: "", completedAt: new Date().toISOString(), duration },
+          },
     })),
 
   setFailed: (message) => set({ status: "failed", errorMessage: message }),
 
-  setResult: (result) => set({ result, status: result.status }),
+  setResult: (result) => set((s) => {
+    const mergedResult = s.result?.healthScore && !result.healthScore
+      ? { ...result, healthScore: s.result.healthScore }
+      : result;
+    const newStatus = (s.status === "completed" || s.status === "failed")
+      ? s.status
+      : result.status;
+    return { result: mergedResult, status: newStatus };
+  }),
 
   setFindings: (findings) => set({ findings }),
   setFixes: (fixes, fixSummary) => set({ fixes, fixSummary }),
   setChains: (chains) => set({ chains }),
+  setGraphData: (nodes, edges) => set({ graphNodes: nodes, graphEdges: edges }),
 
   setFindingFilter: (filter) => set((s) => ({ findingFilters: { ...s.findingFilters, ...filter } })),
   setGraphView: (view) => set({ currentGraphView: view }),

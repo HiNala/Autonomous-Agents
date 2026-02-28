@@ -3,11 +3,11 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    app_name: str = "VIBE CHECK API"
+    app_name: str = "Autonomix API"
     debug: bool = True
 
-    database_url: str = "postgresql+asyncpg://vibecheck:vibecheck_secret@localhost:5432/vibecheck"
-    database_url_sync: str = "postgresql://vibecheck:vibecheck_secret@localhost:5432/vibecheck"
+    database_url: str = "postgresql+asyncpg://autonomix:autonomix_secret@localhost:5432/autonomix"
+    database_url_sync: str = "postgresql://autonomix:autonomix_secret@localhost:5432/autonomix"
 
     yutori_api_key: str = ""
     neo4j_uri: str = ""

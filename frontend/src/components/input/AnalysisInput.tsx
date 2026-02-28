@@ -130,7 +130,7 @@ export function AnalysisInput() {
             filter: "drop-shadow(0 0 20px rgba(147,197,253,0.35))",
             }}
           >
-            VIBE CHECK
+            AUTONOMIX
           </h1>
           <p
             style={{

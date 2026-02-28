@@ -1,4 +1,4 @@
-// ── VIBE CHECK — Shared TypeScript Types (from contracts.md) ──
+// ── Autonomix — Shared TypeScript Types (from contracts.md) ──
 
 export type Severity = "critical" | "warning" | "info";
 export type AgentName = "quality" | "pattern" | "security" | "orchestrator" | "doctor" | "mapper";

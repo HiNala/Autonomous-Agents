@@ -41,7 +41,46 @@ export function FixPlan() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
 
-  if (!fixes.length) return null;
+  if (!fixes.length) return (
+    <div
+      style={{
+        background: "rgba(17, 17, 22, 0.72)",
+        backdropFilter: "blur(12px) saturate(1.4)",
+        WebkitBackdropFilter: "blur(12px) saturate(1.4)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-lg)",
+        padding: "var(--space-5) var(--space-6)",
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-4)",
+        boxShadow: "var(--shadow-panel)",
+      }}
+    >
+      <div style={{
+        width: 36, height: 36, borderRadius: "50%",
+        background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "1rem", flexShrink: 0,
+      }}>
+        ✓
+      </div>
+      <div>
+        <h2 style={{
+          fontFamily: "var(--font-code)", fontSize: "var(--text-micro)",
+          color: "var(--text-tertiary)", margin: 0, letterSpacing: "0.12em",
+          textTransform: "uppercase", fontWeight: 600,
+        }}>
+          FIX PLAN
+        </h2>
+        <p style={{
+          margin: "4px 0 0", fontSize: "var(--text-small)",
+          color: "var(--color-healthy-text)",
+        }}>
+          No fixes needed — looking good!
+        </p>
+      </div>
+    </div>
+  );
 
   return (
     <div

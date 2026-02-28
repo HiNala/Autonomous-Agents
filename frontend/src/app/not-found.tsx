@@ -82,7 +82,7 @@ export default function NotFound() {
             gap: 8,
           }}
         >
-          ← Back to VIBE CHECK
+          ← Back to Autonomix
         </Link>
       </body>
     </html>

@@ -205,7 +205,8 @@ export function GraphPanel() {
         position: isFullscreen ? "fixed" : "relative",
         inset: isFullscreen ? "56px 0 40px" : undefined,
         zIndex: isFullscreen ? 40 : undefined,
-        minHeight: isFullscreen ? undefined : 440,
+        height: isFullscreen ? undefined : 600,
+        minHeight: isFullscreen ? undefined : 600,
         boxShadow: "var(--shadow-panel)",
       }}
     >
@@ -219,8 +220,8 @@ export function GraphPanel() {
         edgeCount={graphEdges.length}
       />
 
-      {/* Canvas area */}
-      <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+      {/* Canvas area — explicit height so Cytoscape resolves 100% correctly */}
+      <div style={{ flex: 1, position: "relative", minHeight: 0, height: "100%" }}>
         {isEmpty ? (
           <div
             style={{
@@ -281,6 +282,48 @@ export function GraphPanel() {
                 · {critCount} critical
               </span>
             )}
+          </div>
+        )}
+
+        {/* Structure view color legend */}
+        {currentGraphView === "structure" && !isEmpty && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: "var(--space-4)",
+              right: "var(--space-4)",
+              background: "rgba(9, 9, 11, 0.92)",
+              border: "1px solid var(--border-default)",
+              borderRadius: "var(--radius-md)",
+              padding: "8px 12px",
+              fontSize: "var(--text-micro)",
+              color: "var(--text-secondary)",
+              fontFamily: "var(--font-code)",
+              backdropFilter: "blur(8px)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "8px 14px",
+              maxWidth: 340,
+            }}
+          >
+            {[
+              { label: "Source", color: "#818CF8" },
+              { label: "Test", color: "#22D3EE" },
+              { label: "Config", color: "#FBBF24" },
+              { label: "Docs", color: "#60A5FA" },
+              { label: "Build", color: "#F97316" },
+              { label: "Directory", color: "#4F46E5" },
+              { label: "Critical", color: "#EF4444" },
+              { label: "Warning", color: "#F59E0B" },
+            ].map((item) => (
+              <span key={item.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{
+                  display: "inline-block", width: 8, height: 8, borderRadius: 2,
+                  background: item.color, boxShadow: `0 0 4px ${item.color}66`,
+                }} />
+                <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{item.label}</span>
+              </span>
+            ))}
           </div>
         )}
 

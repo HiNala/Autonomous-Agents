@@ -62,4 +62,4 @@ app.include_router(ws.router,        tags=["websocket"])
 
 @app.get("/")
 async def root():
-    return {"message": "VIBE CHECK API", "version": "0.1.0", "docs": "/docs"}
+    return {"message": "Autonomix API", "version": "0.1.0", "docs": "/docs"}

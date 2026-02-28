@@ -16,7 +16,7 @@ import { api } from "@/lib/api";
 
 export default function AnalysisPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { analysisId, status, startAnalysis, setResult, setFindings, setFixes, setChains } = useAnalysisStore();
+  const { analysisId, status, startAnalysis, setResult, setFindings, setFixes, setChains, setGraphData } = useAnalysisStore();
 
   useEffect(() => {
     if (analysisId !== id) {
@@ -27,10 +27,11 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
           api.getFindings(id, { limit: 100 }).then((f) => setFindings(f.items)).catch(() => null);
           api.getFixes(id).then((f) => setFixes(f.fixes, f.summary)).catch(() => null);
           api.getChains(id).then((c) => setChains(c.chains)).catch(() => null);
+          api.getGraph(id, "structure").then((g) => setGraphData(g.nodes, g.edges)).catch(() => null);
         }
       }).catch(() => null);
     }
-  }, [id, analysisId, startAnalysis, setResult, setFindings, setFixes, setChains]);
+  }, [id, analysisId, startAnalysis, setResult, setFindings, setFixes, setChains, setGraphData]);
 
   useAnalysisWebSocket(id);
 
@@ -85,7 +86,7 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "260px 1fr",
+              gridTemplateColumns: "240px 1fr",
               gap: "var(--space-5)",
               alignItems: "start",
               opacity: revealPhase >= 1 ? 1 : 0,
@@ -97,23 +98,29 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
             <ScoreBreakdown />
           </div>
 
-          {/* Row 2 — Graph + Findings */}
+          {/* Row 2 — Full-width graph */}
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "60% 1fr",
-              gap: "var(--space-5)",
-              alignItems: "start",
               opacity: revealPhase >= 2 ? 1 : 0,
               transform: revealPhase >= 2 ? "translateY(0)" : "translateY(16px)",
               transition: "opacity 0.5s ease, transform 0.5s ease",
             }}
           >
             <GraphPanel />
+          </div>
+
+          {/* Row 3 — Findings full width */}
+          <div
+            style={{
+              opacity: revealPhase >= 2 ? 1 : 0,
+              transform: revealPhase >= 2 ? "translateY(0)" : "translateY(16px)",
+              transition: "opacity 0.6s ease, transform 0.6s ease",
+            }}
+          >
             <FindingsPanel />
           </div>
 
-          {/* Row 3 — Fix plan */}
+          {/* Row 4 — Fix plan */}
           <div
             style={{
               opacity: revealPhase >= 3 ? 1 : 0,
@@ -139,12 +146,14 @@ function AnalysisSummaryBanner() {
   const { result, findings } = useAnalysisStore();
   if (!result) return null;
 
-  const totalFiles = result.stats?.total_files ?? result.stats?.totalFiles ?? 0;
-  const duration = result.timestamps?.duration ?? result.duration_seconds ?? 0;
-  const findingCount = findings.length || result.findings?.total || 0;
-  const criticalCount = findings.filter((f) => f.severity === "critical").length || result.findings?.critical || 0;
-
-  const repoName = result.repoName ?? result.repo_name ?? "repository";
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const s = result.stats as any;
+  const totalFiles = s?.totalFiles ?? s?.total_files ?? 0;
+  const duration = result.timestamps?.duration ?? 0;
+  const findingCount = findings.length || (result.findings as any)?.total || 0;
+  const criticalCount = findings.filter((f) => f.severity === "critical").length || (result.findings as any)?.critical || 0;
+  const repoName = result.repoName || "repository";
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   let summaryText: string;
   if (findingCount === 0) {

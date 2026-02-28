@@ -1,4 +1,4 @@
-# VIBE CHECK — Codebase Intelligence Engine
+# Autonomix — Codebase Intelligence Engine
 
 > Built at the **Autonomous Agents Hackathon** · AWS Builder Loft, San Francisco · Feb 27, 2026
 
@@ -15,7 +15,7 @@ Autonomous multi-agent GitHub repository analyzer. Paste a repo URL, watch 6 AI 
 
 **Sponsors powering this project:**
 
-| Sponsor | Role in VIBE CHECK |
+| Sponsor | Role in Autonomix |
 |---------|-------------------|
 | **Neo4j** | Knowledge graph — every file, function, CVE, and relationship lives here |
 | **Fastino Labs** | Primary fast classification & entity extraction via GLiNER-2 REST API |

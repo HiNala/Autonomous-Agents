@@ -17,22 +17,22 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://vibecheck.dev"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://autonomix.dev"),
   title: {
-    default: "VIBE CHECK — Codebase Intelligence",
-    template: "%s | VIBE CHECK",
+    default: "Autonomix — Codebase Intelligence",
+    template: "%s | Autonomix",
   },
   description:
     "Autonomous multi-agent GitHub repository analyzer. Clinical precision. Living knowledge graph. Intelligence that compounds.",
   keywords: ["code review", "security", "static analysis", "GitHub", "autonomous agents", "knowledge graph"],
-  authors: [{ name: "VIBE CHECK" }],
-  creator: "VIBE CHECK",
+  authors: [{ name: "Autonomix" }],
+  creator: "Autonomix",
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://vibecheck.dev",
-    siteName: "VIBE CHECK",
-    title: "VIBE CHECK — Codebase Intelligence",
+    url: "https://autonomix.dev",
+    siteName: "Autonomix",
+    title: "Autonomix — Codebase Intelligence",
     description:
       "Autonomous multi-agent GitHub repository analyzer. Clinical precision. Living knowledge graph.",
     images: [
@@ -40,13 +40,13 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "VIBE CHECK — Codebase Intelligence",
+        alt: "Autonomix — Codebase Intelligence",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "VIBE CHECK — Codebase Intelligence",
+    title: "Autonomix — Codebase Intelligence",
     description: "Autonomous multi-agent GitHub repository analyzer.",
     images: ["/og-image.png"],
   },
