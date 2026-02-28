@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { use } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
-import { AnalysisProgress } from "@/components/progress/AnalysisProgress";
 import { HealthScoreHero } from "@/components/score/HealthScoreHero";
 import { ScoreBreakdown } from "@/components/score/ScoreBreakdown";
 import { GraphPanel } from "@/components/graph/GraphPanel";
@@ -13,6 +12,10 @@ import { FixPlan } from "@/components/fixes/FixPlan";
 import { useAnalysisStore } from "@/stores/analysisStore";
 import { useAnalysisWebSocket } from "@/hooks/useAnalysisWebSocket";
 import { api } from "@/lib/api";
+import type { AgentName } from "@/types/shared";
+import { agentColor } from "@/lib/colors";
+
+const AGENT_ORDER: AgentName[] = ["orchestrator", "mapper", "quality", "pattern", "security", "doctor"];
 
 export default function AnalysisPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -40,119 +43,256 @@ export default function AnalysisPage({ params }: { params: Promise<{ id: string 
   const isCompleted = status === "completed";
   const isFailed    = status === "failed";
 
-  // ── Choreographed reveal sequence ──────────────────────────
-  // T+0.0s: score row appears
-  // T+0.5s: graph + findings row appears
-  // T+1.5s: fix plan appears
-  const [revealPhase, setRevealPhase] = useState(0);
+  // Reveal score + breakdown only once we have a health score
+  const { result } = useAnalysisStore();
+  const hasScore = !!result?.healthScore;
 
-  useEffect(() => {
-    if (!isCompleted) { setRevealPhase(0); return; }
-    const t1 = setTimeout(() => setRevealPhase(1), 50);
-    const t2 = setTimeout(() => setRevealPhase(2), 500);
-    const t3 = setTimeout(() => setRevealPhase(3), 1500);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [isCompleted]);
-
-  return (
-    <AppShell>
-      {/* ── LOADING / IDLE ───────────────────────────────── */}
-      {isIdle && (
+  if (isIdle) {
+    return (
+      <AppShell>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh", flexDirection: "column", gap: "var(--space-3)" }}>
           <div style={{ width: 40, height: 40, border: "2px solid var(--border-default)", borderTopColor: "var(--color-accent)", borderRadius: "50%" }} className="animate-spin" />
           <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-small)", color: "var(--text-tertiary)" }}>Loading analysis...</span>
         </div>
-      )}
+      </AppShell>
+    );
+  }
 
-      {/* ── SCANNING VIEW ─────────────────────────────────── */}
-      {isScanning && <AnalysisProgress />}
+  if (isFailed) {
+    return (
+      <AppShell>
+        <FailedState />
+      </AppShell>
+    );
+  }
 
-      {/* ── COMPLETED DASHBOARD ───────────────────────────── */}
-      {isCompleted && (
+  return (
+    <AppShell>
+      <div
+        style={{
+          maxWidth: 1400,
+          margin: "0 auto",
+          padding: "var(--space-5) var(--space-6)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-5)",
+        }}
+      >
+        {/* ── Scanning status bar (visible while running) ─────────── */}
+        {isScanning && <ScanningStatusBar />}
+
+        {/* ── Summary banner (visible once completed) ─────────────── */}
+        {isCompleted && <AnalysisSummaryBanner />}
+
+        {/* ── Score row ─────────────────────────────────────────────
+            Show placeholder cards while scanning, real data when complete */}
         <div
           style={{
-            maxWidth: 1400,
-            margin: "0 auto",
-            padding: "var(--space-5) var(--space-6)",
-            display: "flex",
-            flexDirection: "column",
+            display: "grid",
+            gridTemplateColumns: "240px 1fr",
             gap: "var(--space-5)",
+            alignItems: "start",
           }}
         >
-          {/* Summary banner */}
-          <AnalysisSummaryBanner />
-
-          {/* Row 1 — Score hero + breakdown */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "240px 1fr",
-              gap: "var(--space-5)",
-              alignItems: "start",
-              opacity: revealPhase >= 1 ? 1 : 0,
-              transform: revealPhase >= 1 ? "translateY(0)" : "translateY(12px)",
-              transition: "opacity 0.5s ease, transform 0.5s ease",
-            }}
-          >
-            <HealthScoreHero />
-            <ScoreBreakdown />
-          </div>
-
-          {/* Row 2 — Full-width graph */}
-          <div
-            style={{
-              opacity: revealPhase >= 2 ? 1 : 0,
-              transform: revealPhase >= 2 ? "translateY(0)" : "translateY(16px)",
-              transition: "opacity 0.5s ease, transform 0.5s ease",
-            }}
-          >
-            <GraphPanel />
-          </div>
-
-          {/* Row 3 — Findings full width */}
-          <div
-            style={{
-              opacity: revealPhase >= 2 ? 1 : 0,
-              transform: revealPhase >= 2 ? "translateY(0)" : "translateY(16px)",
-              transition: "opacity 0.6s ease, transform 0.6s ease",
-            }}
-          >
-            <FindingsPanel />
-          </div>
-
-          {/* Row 4 — Fix plan */}
-          <div
-            style={{
-              opacity: revealPhase >= 3 ? 1 : 0,
-              transform: revealPhase >= 3 ? "translateY(0)" : "translateY(16px)",
-              transition: "opacity 0.5s ease, transform 0.5s ease",
-            }}
-          >
-            <FixPlan />
-          </div>
+          {hasScore ? (
+            <>
+              <HealthScoreHero />
+              <ScoreBreakdown />
+            </>
+          ) : (
+            <>
+              <ScorePlaceholder />
+              <BreakdownPlaceholder />
+            </>
+          )}
         </div>
-      )}
 
-      {/* Finding detail slide-over — outside grid, overlays everything */}
-      {isCompleted && <FindingDetail />}
+        {/* ── Knowledge graph (builds live) ───────────────────────── */}
+        <GraphPanel />
 
-      {/* ── FAILED STATE ──────────────────────────────────── */}
-      {isFailed && <FailedState />}
+        {/* ── Findings (stream in live) ────────────────────────────── */}
+        <FindingsPanel />
+
+        {/* ── Fix plan (appears once doctor agent is done) ─────────── */}
+        {isCompleted && <FixPlan />}
+      </div>
+
+      {/* Finding detail slide-over */}
+      <FindingDetail />
     </AppShell>
   );
 }
 
+// ── Scanning status bar ──────────────────────────────────────────
+function ScanningStatusBar() {
+  const { agentStatuses, graphNodes, liveFindings } = useAnalysisStore();
+
+  const activeAgent = AGENT_ORDER.find(
+    (a) => agentStatuses[a]?.status === "running"
+  );
+  const doneCount = AGENT_ORDER.filter((a) => agentStatuses[a]?.status === "complete").length;
+  const activeMsg = activeAgent ? agentStatuses[activeAgent]?.message : null;
+
+  return (
+    <div
+      style={{
+        background: "rgba(17, 17, 22, 0.72)",
+        backdropFilter: "blur(12px) saturate(1.4)",
+        WebkitBackdropFilter: "blur(12px) saturate(1.4)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-lg)",
+        padding: "12px var(--space-5)",
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-5)",
+        boxShadow: "var(--shadow-panel)",
+        animation: "slide-up 0.3s ease-out",
+      }}
+    >
+      {/* Pulsing dot */}
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: "var(--color-accent)",
+          flexShrink: 0,
+          animation: "pulse-once 1s ease-in-out infinite",
+          boxShadow: "0 0 8px var(--color-accent)",
+        }}
+      />
+
+      {/* Agent dots */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {AGENT_ORDER.map((agent) => {
+          const s = agentStatuses[agent];
+          const isDone    = s?.status === "complete";
+          const isRunning = s?.status === "running";
+          const color = agentColor(agent);
+          return (
+            <div key={agent} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: isDone ? color : isRunning ? color : "var(--border-default)",
+                  opacity: isDone ? 1 : isRunning ? 1 : 0.3,
+                  boxShadow: isRunning ? `0 0 6px ${color}` : undefined,
+                  transition: "all 0.3s ease",
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 8,
+                  fontFamily: "var(--font-code)",
+                  color: isDone || isRunning ? "var(--text-tertiary)" : "var(--border-default)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  opacity: isDone || isRunning ? 1 : 0.3,
+                }}
+              >
+                {agent.slice(0, 3)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Divider */}
+      <span style={{ width: 1, height: 28, background: "var(--border-subtle)" }} />
+
+      {/* Current message */}
+      <span
+        style={{
+          fontSize: "var(--text-small)",
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-code)",
+          flex: 1,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {activeMsg ?? "Analyzing..."}
+      </span>
+
+      {/* Live stats */}
+      <div style={{ display: "flex", gap: "var(--space-4)", flexShrink: 0 }}>
+        <Stat label="agents" value={`${doneCount}/${AGENT_ORDER.length}`} />
+        {graphNodes.length > 0 && <Stat label="nodes" value={String(graphNodes.length)} />}
+        {liveFindings.length > 0 && (
+          <Stat
+            label="findings"
+            value={String(liveFindings.length)}
+            color={liveFindings.some((f) => f.severity === "critical") ? "var(--color-critical-text)" : undefined}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+      <span style={{ fontSize: "var(--text-micro)", fontFamily: "var(--font-code)", color: color ?? "var(--text-primary)", fontWeight: 600 }}>{value}</span>
+      <span style={{ fontSize: 9, fontFamily: "var(--font-code)", color: "var(--text-quaternary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+    </span>
+  );
+}
+
+// ── Score placeholders ───────────────────────────────────────────
+function ScorePlaceholder() {
+  return (
+    <div
+      style={{
+        background: "rgba(17,17,22,0.72)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-lg)",
+        height: 180,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        animation: "pulse-placeholder 1.8s ease-in-out infinite",
+      }}
+    >
+      <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-micro)", color: "var(--text-quaternary)" }}>Calculating score...</span>
+    </div>
+  );
+}
+
+function BreakdownPlaceholder() {
+  return (
+    <div
+      style={{
+        background: "rgba(17,17,22,0.72)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-lg)",
+        height: 180,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        animation: "pulse-placeholder 1.8s ease-in-out infinite",
+      }}
+    >
+      <span style={{ fontFamily: "var(--font-code)", fontSize: "var(--text-micro)", color: "var(--text-quaternary)" }}>Running analysis...</span>
+    </div>
+  );
+}
+
+// ── Summary banner ───────────────────────────────────────────────
 function AnalysisSummaryBanner() {
   const { result, findings } = useAnalysisStore();
   if (!result) return null;
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const s = result.stats as any;
-  const totalFiles = s?.totalFiles ?? s?.total_files ?? 0;
-  const duration = result.timestamps?.duration ?? 0;
-  const findingCount = findings.length || (result.findings as any)?.total || 0;
+  const totalFiles    = s?.totalFiles ?? s?.total_files ?? 0;
+  const duration      = result.timestamps?.duration ?? 0;
+  const findingCount  = findings.length || (result.findings as any)?.total || 0;
   const criticalCount = findings.filter((f) => f.severity === "critical").length || (result.findings as any)?.critical || 0;
-  const repoName = result.repoName || "repository";
+  const repoName      = result.repoName || "repository";
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   let summaryText: string;
@@ -204,6 +344,7 @@ function AnalysisSummaryBanner() {
   );
 }
 
+// ── Failed state ─────────────────────────────────────────────────
 function FailedState() {
   const { errorMessage } = useAnalysisStore();
 
@@ -238,7 +379,6 @@ function FailedState() {
           animation: "slide-up 0.3s ease-out",
         }}
       >
-        {/* Icon */}
         <div
           style={{
             width: 52,
@@ -280,7 +420,6 @@ function FailedState() {
           </p>
         </div>
 
-        {/* Actions */}
         <div style={{ display: "flex", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
           <Link
             href="/"
